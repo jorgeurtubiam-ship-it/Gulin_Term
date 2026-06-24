@@ -1,0 +1,46 @@
+{
+  "_ejemplo_skill": {
+    "nivel": 3,
+    "progreso": 60,
+    "descripcion": "Descripción de la habilidad",
+    "ultimo_uso": "2026-05-18"
+  },
+  "DBA Oracle": {
+    "nivel": 5,
+    "progreso": 80,
+    "descripcion": "Administración de bases de datos Oracle (20 años exp)",
+    "ultimo_uso": "2026-05-18"
+  },
+  "AWS Expert": {
+    "nivel": 4,
+    "progreso": 75,
+    "descripcion": "Infraestructura AWS: EC2, Lightsail, EBS, VPC, Security Groups",
+    "ultimo_uso": "2026-05-18"
+  },
+  "Docker": {
+    "nivel": 4,
+    "progreso": 70,
+    "descripcion": "Contenedores Docker y Docker Compose",
+    "ultimo_uso": "2026-05-17"
+  },
+  "FullStack Dev": {
+    "nivel": 4,
+    "progreso": 65,
+    "descripcion": "TypeScript, React, Go, Python, desarrollo web full stack",
+    "ultimo_uso": "2026-05-18"
+  },
+  "DevOps": {
+    "nivel": 3,
+    "progreso": 55,
+    "descripcion": "CI/CD, automatización, scripts Bash, Terraform",
+    "ultimo_uso": "2026-05-16"
+  },
+  "Dremio BI": {
+    "nivel": 3,
+    "progreso": 50,
+    "descripcion": "Análisis de datos con Dremio y visualización BI",
+    "ultimo_uso": "2026-05-14"
+  },
+  "xp_total": 2450,
+  "nivel_global": 4
+}

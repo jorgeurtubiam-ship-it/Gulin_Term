@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    { "id": "dremio", "x": 400, "y": 100, "label": "Dremio (local)", "type": "DOCKER", "status": "online", "icon": "database", "desc": "Puertos: 9047, 31010, 45678 | IP: 172.17.0.2" },
+    { "id": "oracle-2022", "x": 150, "y": 250, "label": "Oracle 2022", "type": "DB", "status": "pending", "icon": "server" },
+    { "id": "i-0e8a6971d5a473f21", "x": 750, "y": 150, "label": "mindtea-app-final (AWS)", "type": "AWS", "status": "stopped", "icon": "amazon" },
+    { "id": "i-0d6af03ba6b4e72db", "x": 750, "y": 450, "label": "nagios-monitoring-2 (AWS)", "type": "AWS", "status": "stopped", "icon": "amazon" },
+    { "id": "gulin-bridge-fe", "x": 200, "y": 500, "label": "Bridge Frontend (Docker)", "type": "DOCKER", "status": "online", "icon": "desktop", "desc": "Puerto: 3000 | IP: 172.20.0.3" },
+    { "id": "gulin-bridge-app", "x": 400, "y": 500, "label": "Bridge Backend (Docker)", "type": "DOCKER", "status": "online", "icon": "cube", "desc": "Puerto: 8090→8080 | IP: 172.20.0.2" },
+    { "id": "postgres-db", "x": 600, "y": 500, "label": "Postgres DB (Docker)", "type": "DOCKER", "status": "online", "icon": "database", "desc": "Puerto: 5432 | IP: 172.20.0.4" },
+    { "id": "gateway", "x": 500, "y": 300, "label": "API Gateway", "type": "NET", "status": "online", "icon": "route" },
+    { "id": "network-gulin-prod", "x": 400, "y": 650, "label": "gulin_bridge_prod (Docker Net)", "type": "NET", "status": "online", "icon": "globe" }
+  ],
+  "edges": [
+    { "from": "dremio", "to": "gateway", "traffic": "high" },
+    { "from": "oracle-2022", "to": "gateway", "traffic": "low" },
+    { "from": "i-0e8a6971d5a473f21", "to": "gateway", "traffic": "none" },
+    { "from": "i-0d6af03ba6b4e72db", "to": "gateway", "traffic": "none" },
+    { "from": "gulin-bridge-fe", "to": "gulin-bridge-app", "traffic": "medium" },
+    { "from": "gulin-bridge-app", "to": "postgres-db", "traffic": "medium" },
+    { "from": "gulin-bridge-app", "to": "gateway", "traffic": "low" },
+    { "from": "gulin-bridge-fe", "to": "network-gulin-prod", "traffic": "low" },
+    { "from": "gulin-bridge-app", "to": "network-gulin-prod", "traffic": "low" },
+    { "from": "postgres-db", "to": "network-gulin-prod", "traffic": "low" }
+  ]
+}

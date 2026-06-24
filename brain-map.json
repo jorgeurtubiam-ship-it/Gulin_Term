@@ -1,0 +1,33 @@
+{
+  "_ejemplo_nodo": {
+    "id": "mi-servidor",
+    "label": "Servidor Producción",
+    "type": "aws-ec2",
+    "status": "online",
+    "icon": "🖥️",
+    "x": 0,
+    "y": 0,
+    "description": "Servidor de producción AWS",
+    "parent_id": "aws-us-east-1"
+  },
+  "_ejemplo_arista": {
+    "source": "mi-servidor",
+    "target": "mi-base-datos",
+    "traffic": "TCP/5432"
+  },
+  "estadisticas": {
+    "total_nodos": 25,
+    "total_aristas": 42
+  },
+  "tipos_disponibles": ["aws-region", "aws-ec2", "aws-lightsail", "aws-ebs", "aws-sg", "aws-vpc", "core", "server", "db", "docker", "lightsail"],
+  "nodos_destacados": [
+    {"id": "aws-us-east-1", "label": "AWS us-east-1", "type": "aws-region", "status": "active"},
+    {"id": "ec2-mindtea", "label": "EC2 MindTea", "type": "aws-ec2", "status": "stopped"},
+    {"id": "lightsail-epos-mvp", "label": "Lightsail EPOS MVP", "type": "aws-lightsail", "status": "running"},
+    {"id": "core-gulin", "label": "Core GuLiN Agent", "type": "core", "status": "active"}
+  ],
+  "conexiones_principales": [
+    {"source": "aws-us-east-1", "target": "ec2-mindtea", "traffic": "contains"},
+    {"source": "core-gulin", "target": "aws-us-east-1", "traffic": "manages"}
+  ]
+}

@@ -1,0 +1,655 @@
+// Copyright 2025, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { BlockNodeModel } from "@/app/block/blocktypes";
+import type { TabModel } from "@/app/store/tab-model";
+import { getApi, getBlockMetaKeyAtom, WOS } from "@/app/store/global";
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { SecretsContent } from "@/app/view/gulinconfig/secretscontent";
+import { GulinConfigView } from "@/app/view/gulinconfig/gulinconfig";
+import { isWindows } from "@/util/platformutil";
+import { base64ToString, stringToBase64 } from "@/util/util";
+import { GulinAIVisualContent } from "@/app/view/gulinconfig/gulinaivisual";
+import { GulinGeneralVisualContent } from "@/app/view/gulinconfig/generalvisual";
+import { atom, type PrimitiveAtom } from "jotai";
+import type * as MonacoTypes from "monaco-editor";
+import * as React from "react";
+
+type ValidationResult = { success: true } | { error: string };
+type ConfigValidator = (parsed: any) => ValidationResult;
+
+export type ConfigFile = {
+    name: string;
+    path: string;
+    language?: string;
+    deprecated?: boolean;
+    description?: string;
+    docsUrl?: string;
+    validator?: ConfigValidator;
+    isSecrets?: boolean;
+    hasJsonView?: boolean;
+    visualComponent?: React.ComponentType<{ model: GulinConfigViewModel }>;
+    basePath?: string; // override configDir, e.g. project root
+};
+
+export const SecretNameRegex = /^[A-Za-z][A-Za-z0-9_:]*$/;
+
+function validateBgJson(parsed: any): ValidationResult {
+    const keys = Object.keys(parsed);
+    for (const key of keys) {
+        if (!key.startsWith("bg@")) {
+            return { error: `Invalid key "${key}": all top-level keys must start with "bg@"` };
+        }
+    }
+    return { success: true };
+}
+
+function validateAiJson(parsed: any): ValidationResult {
+    const keys = Object.keys(parsed);
+    for (const key of keys) {
+        if (!key.startsWith("ai@")) {
+            return { error: `Invalid key "${key}": all top-level keys must start with "ai@"` };
+        }
+    }
+    return { success: true };
+}
+
+function validateGulinAiJson(parsed: any): ValidationResult {
+    const keys = Object.keys(parsed);
+    const keyPattern = /^[a-zA-Z0-9_@.-]+$/;
+    for (const key of keys) {
+        if (!keyPattern.test(key)) {
+            return {
+                error: `Invalid key "${key}": keys must only contain letters, numbers, underscores, @, dots, and hyphens`,
+            };
+        }
+    }
+    return { success: true };
+}
+
+const configFiles: ConfigFile[] = [
+    {
+        name: "General",
+        path: "settings.json",
+        language: "json",
+        description: "Configuración global de la app: hotkeys, ventanas, terminal, editor, IA, auto-update",
+        docsUrl: "https://docs.gulin.dev/config",
+        hasJsonView: true,
+        visualComponent: GulinGeneralVisualContent,
+    },
+    {
+        name: "Connections",
+        path: "connections.json",
+        language: "json",
+        description: "Conexiones SSH remotas: hosts, usuarios, claves, init scripts. Editas el JSON directo",
+        docsUrl: "https://docs.gulin.dev/connections",
+        hasJsonView: true,
+    },
+    {
+        name: "Sidebar Widgets",
+        path: "widgets.json",
+        language: "json",
+        description: "Widgets visibles en la barra lateral: terminal, files, web, AI, db, plugins. Orden e íconos",
+        docsUrl: "https://docs.gulin.dev/customwidgets",
+        hasJsonView: true,
+    },
+    {
+        name: "DB Connections",
+        path: "db-connections.json",
+        language: "json",
+        description: "Bases de datos registradas: Postgres, MySQL, SQLite, MongoDB, Oracle. Cada una con tipo y estado",
+        hasJsonView: true,
+    },
+    {
+        name: "APIs",
+        path: "api-manager.json",
+        language: "json",
+        description: "APIs REST registradas: Dremio, GitHub, OpenAI. Define base URL, token y modo de auth",
+        hasJsonView: true,
+    },
+    {
+        name: "Brain Map",
+        path: "brain-map.json",
+        language: "json",
+        description: "Mapa neural 3D de infraestructura: nodos AWS, servidores, conexiones. Resumen de tipos y edges",
+        hasJsonView: true,
+    },
+    {
+        name: "Skills",
+        path: "skills.json",
+        language: "json",
+        description: "Habilidades del agente: DBA Oracle, AWS, Docker, DevOps. Nivel, progreso y última vez usado",
+        hasJsonView: true,
+    },
+    {
+        name: "Instalación",
+        path: "gulin.config.json",
+        language: "json",
+        description: "Rutas cross-platform para instalación: app_dir, data, config, plugins, db, cli. Ajusta según SO",
+        hasJsonView: true,
+        basePath: "/Users/lordzero1/IA_LoRdZeRo/Gulin_Agent/waveterm",
+    },
+    {
+        name: "Gulin IA Modes",
+        path: "gulinai.json",
+        language: "json",
+        description: "Modos de IA: Quick, Balanced, Deep, PLAN, ACT. Cada modo define modelo, proveedor, thinking level",
+        docsUrl: "https://docs.gulin.dev/gulinai-modes",
+        validator: validateGulinAiJson,
+        hasJsonView: true,
+        visualComponent: GulinAIVisualContent,
+    },
+    {
+        name: "Tab Backgrounds",
+        path: "presets/bg.json",
+        language: "json",
+        description: "Fondos visuales de pestañas: Rainbow, Ocean, Sunset, Cosmic. Gradientes, opacidad, blend modes",
+        docsUrl: "https://docs.gulin.dev/presets#background-configurations",
+        validator: validateBgJson,
+        hasJsonView: true,
+    },
+    {
+        name: "Secrets",
+        path: "secrets",
+        isSecrets: true,
+        description: "Secretos cifrados: tokens, contraseñas, claves API. Se guardan en el backend seguro",
+        hasJsonView: false,
+        visualComponent: SecretsContent,
+    },
+];
+
+const deprecatedConfigFiles: ConfigFile[] = [
+    {
+        name: "Presets",
+        path: "presets.json",
+        language: "json",
+        deprecated: true,
+        hasJsonView: true,
+    },
+    {
+        name: "AI Presets",
+        path: "presets/ai.json",
+        language: "json",
+        deprecated: true,
+        docsUrl: "https://docs.gulin.dev/ai-presets",
+        validator: validateAiJson,
+        hasJsonView: true,
+    },
+];
+
+export class GulinConfigViewModel implements ViewModel {
+    blockId: string;
+    viewType = "gulinconfig";
+    viewIcon = atom("gear");
+    viewName = atom("Gulin Config");
+    viewComponent = GulinConfigView;
+    noPadding = atom(true);
+    nodeModel: BlockNodeModel;
+    tabModel: TabModel;
+
+    selectedFileAtom: PrimitiveAtom<ConfigFile>;
+    fileContentAtom: PrimitiveAtom<string>;
+    originalContentAtom: PrimitiveAtom<string>;
+    hasEditedAtom: PrimitiveAtom<boolean>;
+    isLoadingAtom: PrimitiveAtom<boolean>;
+    isSavingAtom: PrimitiveAtom<boolean>;
+    errorMessageAtom: PrimitiveAtom<string>;
+    validationErrorAtom: PrimitiveAtom<string>;
+    isMenuOpenAtom: PrimitiveAtom<boolean>;
+    presetsJsonExistsAtom: PrimitiveAtom<boolean>;
+    activeTabAtom: PrimitiveAtom<"visual" | "json">;
+    configDir: string;
+    saveShortcut: string;
+    editorRef: React.RefObject<MonacoTypes.editor.IStandaloneCodeEditor>;
+
+    secretNamesAtom: PrimitiveAtom<string[]>;
+    selectedSecretAtom: PrimitiveAtom<string | null>;
+    secretValueAtom: PrimitiveAtom<string>;
+    secretShownAtom: PrimitiveAtom<boolean>;
+    isAddingNewAtom: PrimitiveAtom<boolean>;
+    newSecretNameAtom: PrimitiveAtom<string>;
+    newSecretValueAtom: PrimitiveAtom<string>;
+    storageBackendErrorAtom: PrimitiveAtom<string | null>;
+    secretValueRef: HTMLTextAreaElement | null = null;
+
+    constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
+        this.blockId = blockId;
+        this.nodeModel = nodeModel;
+        this.tabModel = tabModel;
+        this.configDir = getApi().getConfigDir();
+        const platform = getApi().getPlatform();
+        this.saveShortcut = platform === "darwin" ? "Cmd+S" : "Alt+S";
+
+        this.selectedFileAtom = atom(null) as PrimitiveAtom<ConfigFile>;
+        this.fileContentAtom = atom("");
+        this.originalContentAtom = atom("");
+        this.hasEditedAtom = atom(false);
+        this.isLoadingAtom = atom(false);
+        this.isSavingAtom = atom(false);
+        this.errorMessageAtom = atom(null) as PrimitiveAtom<string>;
+        this.validationErrorAtom = atom(null) as PrimitiveAtom<string>;
+        this.isMenuOpenAtom = atom(false);
+        this.presetsJsonExistsAtom = atom(false);
+        this.activeTabAtom = atom<"visual" | "json">("visual");
+        this.editorRef = React.createRef();
+
+        this.secretNamesAtom = atom<string[]>([]);
+        this.selectedSecretAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+        this.secretValueAtom = atom<string>("");
+        this.secretShownAtom = atom<boolean>(false);
+        this.isAddingNewAtom = atom<boolean>(false);
+        this.newSecretNameAtom = atom<string>("");
+        this.newSecretValueAtom = atom<string>("");
+        this.storageBackendErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+        this.checkPresetsJsonExists();
+        this.initialize();
+    }
+
+    async checkPresetsJsonExists() {
+        try {
+            const fullPath = `${this.configDir}/presets.json`;
+            const fileInfo = await RpcApi.FileInfoCommand(TabRpcClient, {
+                info: { path: fullPath },
+            });
+            if (!fileInfo.notfound) {
+                globalStore.set(this.presetsJsonExistsAtom, true);
+            }
+        } catch {
+            // File doesn't exist
+        }
+    }
+
+    initialize() {
+        const selectedFile = globalStore.get(this.selectedFileAtom);
+        if (!selectedFile) {
+            const metaFileAtom = getBlockMetaKeyAtom(this.blockId, "file");
+            const savedFilePath = globalStore.get(metaFileAtom);
+
+            let fileToLoad: ConfigFile | null = null;
+            if (savedFilePath) {
+                fileToLoad =
+                    configFiles.find((f) => f.path === savedFilePath) ||
+                    deprecatedConfigFiles.find((f) => f.path === savedFilePath) ||
+                    null;
+            }
+
+            if (!fileToLoad) {
+                fileToLoad = configFiles[0];
+            }
+
+            if (fileToLoad) {
+                this.loadFile(fileToLoad);
+            }
+        }
+    }
+
+    getConfigFiles(): ConfigFile[] {
+        return configFiles;
+    }
+
+    getDeprecatedConfigFiles(): ConfigFile[] {
+        const presetsJsonExists = globalStore.get(this.presetsJsonExistsAtom);
+        return deprecatedConfigFiles.filter((f) => {
+            if (f.path === "presets.json") {
+                return presetsJsonExists;
+            }
+            return true;
+        });
+    }
+
+    hasChanges(): boolean {
+        return globalStore.get(this.hasEditedAtom);
+    }
+
+    markAsEdited() {
+        globalStore.set(this.hasEditedAtom, true);
+    }
+
+    async loadFile(file: ConfigFile) {
+        globalStore.set(this.isLoadingAtom, true);
+        globalStore.set(this.errorMessageAtom, null);
+        globalStore.set(this.hasEditedAtom, false);
+
+        if (file.isSecrets) {
+            globalStore.set(this.selectedFileAtom, file);
+            RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: WOS.makeORef("block", this.blockId),
+                meta: { file: file.path },
+            });
+            globalStore.set(this.isLoadingAtom, false);
+            this.checkStorageBackend();
+            this.refreshSecrets();
+            return;
+        }
+
+        try {
+            const basePath = file.basePath || this.configDir;
+            const fullPath = `${basePath}/${file.path}`;
+            const fileData = await RpcApi.FileReadCommand(TabRpcClient, {
+                info: { path: fullPath },
+            });
+            const content = fileData?.data64 ? base64ToString(fileData.data64) : "";
+            globalStore.set(this.originalContentAtom, content);
+            if (content.trim() === "") {
+                globalStore.set(this.fileContentAtom, "{\n\n}");
+            } else {
+                globalStore.set(this.fileContentAtom, content);
+            }
+            globalStore.set(this.selectedFileAtom, file);
+            RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: WOS.makeORef("block", this.blockId),
+                meta: { file: file.path },
+            });
+        } catch (err) {
+            globalStore.set(this.errorMessageAtom, `Failed to load ${file.name}: ${err.message || String(err)}`);
+            globalStore.set(this.fileContentAtom, "");
+            globalStore.set(this.originalContentAtom, "");
+        } finally {
+            globalStore.set(this.isLoadingAtom, false);
+        }
+    }
+
+    async saveFile() {
+        const selectedFile = globalStore.get(this.selectedFileAtom);
+        if (!selectedFile) return;
+
+        const fileContent = globalStore.get(this.fileContentAtom);
+
+        if (fileContent.trim() === "") {
+            globalStore.set(this.isSavingAtom, true);
+            globalStore.set(this.errorMessageAtom, null);
+            globalStore.set(this.validationErrorAtom, null);
+
+            try {
+                const basePath = selectedFile.basePath || this.configDir;
+                const fullPath = `${basePath}/${selectedFile.path}`;
+                await RpcApi.FileWriteCommand(TabRpcClient, {
+                    info: { path: fullPath },
+                    data64: stringToBase64(""),
+                });
+                globalStore.set(this.fileContentAtom, "");
+                globalStore.set(this.originalContentAtom, "");
+                globalStore.set(this.hasEditedAtom, false);
+            } catch (err) {
+                globalStore.set(
+                    this.errorMessageAtom,
+                    `Failed to save ${selectedFile.name}: ${err.message || String(err)}`
+                );
+            } finally {
+                globalStore.set(this.isSavingAtom, false);
+            }
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(fileContent);
+
+            if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) {
+                globalStore.set(this.validationErrorAtom, "JSON must be an object, not an array, primitive, or null");
+                return;
+            }
+
+            if (selectedFile.validator) {
+                const validationResult = selectedFile.validator(parsed);
+                if ("error" in validationResult) {
+                    globalStore.set(this.validationErrorAtom, validationResult.error);
+                    return;
+                }
+            }
+
+            const formatted = JSON.stringify(parsed, null, 2);
+
+            globalStore.set(this.isSavingAtom, true);
+            globalStore.set(this.errorMessageAtom, null);
+            globalStore.set(this.validationErrorAtom, null);
+
+            try {
+                const basePath = selectedFile.basePath || this.configDir;
+                const fullPath = `${basePath}/${selectedFile.path}`;
+                await RpcApi.FileWriteCommand(TabRpcClient, {
+                    info: { path: fullPath },
+                    data64: stringToBase64(formatted),
+                });
+                globalStore.set(this.fileContentAtom, formatted);
+                globalStore.set(this.originalContentAtom, formatted);
+                globalStore.set(this.hasEditedAtom, false);
+            } catch (err) {
+                globalStore.set(
+                    this.errorMessageAtom,
+                    `Failed to save ${selectedFile.name}: ${err.message || String(err)}`
+                );
+            } finally {
+                globalStore.set(this.isSavingAtom, false);
+            }
+        } catch (err) {
+            globalStore.set(this.validationErrorAtom, `Invalid JSON: ${err.message || String(err)}`);
+        }
+    }
+
+    clearError() {
+        globalStore.set(this.errorMessageAtom, null);
+    }
+
+    clearValidationError() {
+        globalStore.set(this.validationErrorAtom, null);
+    }
+
+    async checkStorageBackend() {
+        try {
+            const backend = await RpcApi.GetSecretsLinuxStorageBackendCommand(TabRpcClient);
+            if (backend === "basic_text" || backend === "unknown") {
+                globalStore.set(
+                    this.storageBackendErrorAtom,
+                    "No appropriate secret manager found. Cannot manage secrets securely."
+                );
+            } else {
+                globalStore.set(this.storageBackendErrorAtom, null);
+            }
+        } catch (error) {
+            globalStore.set(this.storageBackendErrorAtom, `Error checking storage backend: ${error.message}`);
+        }
+    }
+
+    async refreshSecrets() {
+        globalStore.set(this.isLoadingAtom, true);
+        globalStore.set(this.errorMessageAtom, null);
+
+        try {
+            const names = await RpcApi.GetSecretsNamesCommand(TabRpcClient);
+            globalStore.set(this.secretNamesAtom, names || []);
+        } catch (error) {
+            globalStore.set(this.errorMessageAtom, `Failed to load secrets: ${error.message}`);
+        } finally {
+            globalStore.set(this.isLoadingAtom, false);
+        }
+    }
+
+    async viewSecret(name: string) {
+        globalStore.set(this.errorMessageAtom, null);
+        globalStore.set(this.selectedSecretAtom, name);
+        globalStore.set(this.secretShownAtom, false);
+        globalStore.set(this.secretValueAtom, "");
+    }
+
+    closeSecretView() {
+        globalStore.set(this.selectedSecretAtom, null);
+        globalStore.set(this.secretValueAtom, "");
+        globalStore.set(this.errorMessageAtom, null);
+    }
+
+    async showSecret() {
+        const selectedSecret = globalStore.get(this.selectedSecretAtom);
+        if (!selectedSecret) {
+            return;
+        }
+
+        globalStore.set(this.isLoadingAtom, true);
+        globalStore.set(this.errorMessageAtom, null);
+
+        try {
+            const secrets = await RpcApi.GetSecretsCommand(TabRpcClient, [selectedSecret]);
+            const value = secrets[selectedSecret];
+            if (value !== undefined) {
+                globalStore.set(this.secretValueAtom, value);
+                globalStore.set(this.secretShownAtom, true);
+            } else {
+                globalStore.set(this.errorMessageAtom, `Secret not found: ${selectedSecret}`);
+            }
+        } catch (error) {
+            globalStore.set(this.errorMessageAtom, `Failed to load secret: ${error.message}`);
+        } finally {
+            globalStore.set(this.isLoadingAtom, false);
+        }
+    }
+
+    async saveSecret() {
+        const selectedSecret = globalStore.get(this.selectedSecretAtom);
+        const secretValue = globalStore.get(this.secretValueAtom);
+
+        if (!selectedSecret) {
+            return;
+        }
+
+        globalStore.set(this.isLoadingAtom, true);
+        globalStore.set(this.errorMessageAtom, null);
+
+        try {
+            await RpcApi.SetSecretsCommand(TabRpcClient, { [selectedSecret]: secretValue });
+            RpcApi.RecordTEventCommand(
+                TabRpcClient,
+                {
+                    event: "action:other",
+                    props: {
+                        "action:type": "gulinconfig:savesecret",
+                    },
+                },
+                { noresponse: true }
+            );
+            this.closeSecretView();
+        } catch (error) {
+            globalStore.set(this.errorMessageAtom, `Failed to save secret: ${error.message}`);
+        } finally {
+            globalStore.set(this.isLoadingAtom, false);
+        }
+    }
+
+    async deleteSecret() {
+        const selectedSecret = globalStore.get(this.selectedSecretAtom);
+
+        if (!selectedSecret) {
+            return;
+        }
+
+        globalStore.set(this.isLoadingAtom, true);
+        globalStore.set(this.errorMessageAtom, null);
+
+        try {
+            await RpcApi.SetSecretsCommand(TabRpcClient, { [selectedSecret]: null });
+            this.closeSecretView();
+            await this.refreshSecrets();
+        } catch (error) {
+            globalStore.set(this.errorMessageAtom, `Failed to delete secret: ${error.message}`);
+        } finally {
+            globalStore.set(this.isLoadingAtom, false);
+        }
+    }
+
+    startAddingSecret() {
+        globalStore.set(this.isAddingNewAtom, true);
+        globalStore.set(this.newSecretNameAtom, "");
+        globalStore.set(this.newSecretValueAtom, "");
+        globalStore.set(this.errorMessageAtom, null);
+    }
+
+    cancelAddingSecret() {
+        globalStore.set(this.isAddingNewAtom, false);
+        globalStore.set(this.newSecretNameAtom, "");
+        globalStore.set(this.newSecretValueAtom, "");
+        globalStore.set(this.errorMessageAtom, null);
+    }
+
+    async addNewSecret() {
+        const name = globalStore.get(this.newSecretNameAtom).trim();
+        const value = globalStore.get(this.newSecretValueAtom);
+
+        if (!name) {
+            globalStore.set(this.errorMessageAtom, "Secret name cannot be empty");
+            return;
+        }
+
+        if (!SecretNameRegex.test(name)) {
+            globalStore.set(
+                this.errorMessageAtom,
+                "Invalid secret name: must start with a letter and contain only letters, numbers, and underscores"
+            );
+            return;
+        }
+
+        const existingNames = globalStore.get(this.secretNamesAtom);
+        if (existingNames.includes(name)) {
+            globalStore.set(this.errorMessageAtom, `Secret "${name}" already exists`);
+            return;
+        }
+
+        globalStore.set(this.isLoadingAtom, true);
+        globalStore.set(this.errorMessageAtom, null);
+
+        try {
+            await RpcApi.SetSecretsCommand(TabRpcClient, { [name]: value });
+            RpcApi.RecordTEventCommand(
+                TabRpcClient,
+                {
+                    event: "action:other",
+                    props: {
+                        "action:type": "gulinconfig:savesecret",
+                    },
+                },
+                { noresponse: true }
+            );
+            globalStore.set(this.isAddingNewAtom, false);
+            globalStore.set(this.newSecretNameAtom, "");
+            globalStore.set(this.newSecretValueAtom, "");
+            await this.refreshSecrets();
+        } catch (error) {
+            globalStore.set(this.errorMessageAtom, `Failed to add secret: ${error.message}`);
+        } finally {
+            globalStore.set(this.isLoadingAtom, false);
+        }
+    }
+
+    giveFocus(): boolean {
+        const selectedFile = globalStore.get(this.selectedFileAtom);
+        if (selectedFile?.isSecrets && this.secretValueRef) {
+            this.secretValueRef.focus();
+            return true;
+        }
+        if (this.editorRef?.current) {
+            this.editorRef.current.focus();
+            return true;
+        }
+        return false;
+    }
+
+    async syncGulinBridgeModels() {
+        await RpcApi.GulinBridgeSyncModelsCommand(TabRpcClient);
+    }
+
+    async syncGulinBridgeLogin(url: string, email: string, password: string) {
+        await RpcApi.GulinBridgeLoginCommand(TabRpcClient, { url, email, password });
+    }
+
+    async syncGulinBridgeLogout() {
+        await RpcApi.GulinBridgeLogoutCommand(TabRpcClient);
+    }
+
+    async syncGulinBridgeCreateToken(name: string): Promise<string> {
+        return await RpcApi.GulinBridgeCreateTokenCommand(TabRpcClient, name);
+    }
+
+    async syncGulinBridgeRegister(data: CommandGulinBridgeRegisterData): Promise<void> {
+        return await RpcApi.GulinBridgeRegisterCommand(TabRpcClient, data);
+    }
+}

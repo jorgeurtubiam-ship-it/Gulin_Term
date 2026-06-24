@@ -1,0 +1,19 @@
+.db-connections-view {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #09090b;
+
+    .os-host {
+        height: 100%;
+    }
+
+    .connection-card {
+        background: linear-gradient(145deg, rgba(24, 24, 27, 0.8) 0%, rgba(12, 12, 13, 0.9) 100%);
+        backdrop-filter: blur(10px);
+        &:hover {
+            background: linear-gradient(145deg, rgba(30, 30, 35, 0.9) 0%, rgba(18, 18, 20, 1) 100%);
+        }
+    }
+}

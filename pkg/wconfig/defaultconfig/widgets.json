@@ -1,0 +1,144 @@
+{
+    "defwidget@terminal": {
+        "display:order": -5,
+        "icon": "square-terminal",
+        "label": "terminal",
+        "blockdef": {
+            "meta": {
+                "view": "term",
+                "controller": "shell"
+            }
+        }
+    },
+    "defwidget@files": {
+        "display:order": -4,
+        "icon": "folder",
+        "label": "files",
+        "blockdef": {
+            "meta": {
+                "view": "preview",
+                "file": "~"
+            }
+        }
+    },
+    "defwidget@web": {
+        "display:order": -3,
+        "icon": "globe",
+        "label": "web",
+        "blockdef": {
+            "meta": {
+                "view": "web"
+            }
+        }
+    },
+    "defwidget@ai": {
+        "display:order": -2,
+        "icon": "sparkles",
+        "label": "ai",
+        "blockdef": {
+            "meta": {
+                "view": "gulinai"
+            }
+        }
+    },
+    "defwidget@sysinfo": {
+        "display:order": -1,
+        "icon": "chart-line",
+        "label": "sysinfo",
+        "blockdef": {
+            "meta": {
+                "view": "sysinfo"
+            }
+        }
+    },
+    "defwidget@memories": {
+        "display:order": 0,
+        "icon": "brain",
+        "label": "memorias",
+        "blockdef": {
+            "meta": {
+                "view": "memory-grid"
+            }
+        }
+    },
+    "defwidget@db-explorer": {
+        "display:order": 1,
+        "icon": "database",
+        "label": "db_explorer",
+        "blockdef": {
+            "meta": {
+                "view": "db-connections"
+            }
+        }
+    },
+    "defwidget@api-manager": {
+        "display:order": 2,
+        "icon": "key",
+        "label": "api_manager",
+        "blockdef": {
+            "meta": {
+                "view": "api-manager"
+            }
+        }
+    },
+    "defwidget@widget-builder": {
+        "display:order": 3,
+        "icon": "wand-magic-sparkles",
+        "color": "#818cf8",
+        "label": "widgets",
+        "description": "Crea y gestiona widgets personalizados",
+        "blockdef": {
+            "meta": {
+                "view": "widget-builder"
+            }
+        }
+    },
+    "defwidget@debug-logs": {
+        "display:order": 4,
+        "icon": "bug",
+        "color": "#f43f5e",
+        "label": "logs",
+        "description": "Logs de depuración universal",
+        "blockdef": {
+            "meta": {
+                "view": "debug-logs"
+            }
+        }
+    },
+    "defwidget@oracle-monitor": {
+        "display:order": 5,
+        "icon": "chart-area",
+        "color": "#10b981",
+        "label": "monitoreo",
+        "description": "Arquitectura y salud de Oracle",
+        "blockdef": {
+            "meta": {
+                "view": "oracle-monitor"
+            }
+        }
+    },
+    "defwidget@plugin-manager": {
+        "display:order": 6,
+        "icon": "puzzle-piece",
+        "color": "#a78bfa",
+        "label": "plugins",
+        "description": "Gestiona Plugins Dinámicos",
+        "blockdef": {
+            "meta": {
+                "view": "plugin-manager"
+            }
+        }
+    },
+    "defwidget@auto-agents": {
+        "display:order": 5,
+        "icon": "robot",
+        "color": "#22c55e",
+        "label": "agentes",
+        "description": "Gestiona y monitorea agentes autónomos con mapa 3D",
+        "blockdef": {
+            "meta": {
+                "view": "auto-agents"
+            }
+        }
+    }
+}

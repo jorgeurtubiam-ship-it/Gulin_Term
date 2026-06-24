@@ -1,0 +1,26 @@
+{
+  "_ejemplo_api": {
+    "url": "http://127.0.0.1:9047",
+    "username": "admin",
+    "password": "mi_password",
+    "token": null,
+    "auth_instructions": "POST /apiv2/login con username/password devuelve token",
+    "system_prompt": "Eres un asistente experto en Dremio",
+    "knowledge_source": "https://docs.dremio.com/"
+  },
+  "dremio-local": {
+    "url": "http://127.0.0.1:9047",
+    "username": "admin",
+    "password": "admin123",
+    "token": null,
+    "auth_instructions": "POST /apiv2/login con username/password devuelve token",
+    "system_prompt": "Eres un asistente experto en Dremio SQL"
+  },
+  "github-api": {
+    "url": "https://api.github.com",
+    "username": "jorgeurtubiam",
+    "password": null,
+    "token": "ghp_tu_token_aqui",
+    "system_prompt": "Eres un asistente de GitHub"
+  }
+}

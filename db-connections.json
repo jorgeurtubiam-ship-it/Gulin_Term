@@ -1,0 +1,36 @@
+{
+  "_ejemplo_conexion_db": {
+    "type": "postgres",
+    "dsn": "postgres://user:password@host:5432/nombre_db?sslmode=disable",
+    "descripcion": "Base de datos de producción",
+    "status": "disconnected"
+  },
+  "gulin_db_pkg": {
+    "type": "sqlite",
+    "dsn": "/Users/lordzero1/IA_LoRdZeRo/Gulin_Agent/waveterm/pkg/gulin.db",
+    "descripcion": "Base de datos del paquete GuLiN",
+    "status": "registered"
+  },
+  "gulin_db_root": {
+    "type": "sqlite",
+    "descripcion": "Base de datos raíz de GuLiN",
+    "status": "registered"
+  },
+  "gulin_prod": {
+    "type": "sqlite",
+    "descripcion": "Base de datos de producción GuLiN",
+    "status": "registered"
+  },
+  "mi_postgres_local": {
+    "type": "postgres",
+    "dsn": "postgres://admin:pass@localhost:5432/mi_aplicacion",
+    "descripcion": "PostgreSQL local de desarrollo",
+    "status": "disconnected"
+  },
+  "oracle_produccion": {
+    "type": "oracle",
+    "dsn": "oracle://system:pass@oracle-server:1521/ORCL",
+    "descripcion": "Oracle de producción",
+    "status": "disconnected"
+  }
+}

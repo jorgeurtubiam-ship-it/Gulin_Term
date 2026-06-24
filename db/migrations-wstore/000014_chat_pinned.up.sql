@@ -1,0 +1,1 @@
+ALTER TABLE chat_message ADD COLUMN pinned INTEGER DEFAULT 0;

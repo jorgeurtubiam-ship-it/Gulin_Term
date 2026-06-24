@@ -1,0 +1,54 @@
+{
+  "//": "Archivo maestro de configuración de GuLiN Agent. Define las rutas de instalación cross-platform.",
+  "// VERSION": "2.0.3",
+  "gulin": {
+    "version": "2.0.3",
+    "app_name": "GuLiN",
+    "persistent_logging": true
+  },
+  "rutas": {
+    "//": "Cada bloque define las rutas para un SO. El instalador lee según $(uname -s).",
+    "darwin": {
+      "app_dir": "/Applications/GuLiN.app",
+      "data_dir": "~/Library/Application Support/gulin",
+      "config_dir": "~/.config/gulin",
+      "plugins_dir": "~/Library/Application Support/gulin/plugins",
+      "db_dir": "~/Library/Application Support/gulin/db",
+      "cache_dir": "~/Library/Caches/gulin",
+      "electron_data_dir": "~/Library/Application Support/gulin/electron",
+      "preferences_file": "~/Library/Preferences/dev.gulin.app.plist",
+      "saved_state_dir": "~/Library/Saved Application State/dev.gulin.app.savedState",
+      "logs_dir": "~/Library/Logs/gulin",
+      "cli_install_dir": "/usr/local/bin",
+      "shell_rc_file": "~/.zshrc"
+    },
+    "linux": {
+      "app_dir": "/opt/GuLiN",
+      "data_dir": "~/.local/share/gulin",
+      "config_dir": "~/.config/gulin",
+      "plugins_dir": "~/.config/gulin/plugins",
+      "db_dir": "~/.local/share/gulin/db",
+      "cache_dir": "~/.cache/gulin",
+      "logs_dir": "~/.local/share/gulin/logs",
+      "cli_install_dir": "/usr/local/bin",
+      "shell_rc_file": "~/.bashrc"
+    },
+    "windows": {
+      "app_dir": "%LOCALAPPDATA%/GuLiN",
+      "data_dir": "%APPDATA%/gulin",
+      "config_dir": "%APPDATA%/gulin/config",
+      "plugins_dir": "%APPDATA%/gulin/plugins",
+      "db_dir": "%APPDATA%/gulin/db",
+      "cache_dir": "%LOCALAPPDATA%/gulin/cache",
+      "logs_dir": "%APPDATA%/gulin/logs",
+      "cli_install_dir": "%LOCALAPPDATA%/gulin/bin",
+      "shell_rc_file": "%USERPROFILE%/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"
+    }
+  },
+  "dev": {
+    "plugins_dir": "~/.config/gulin-dev/plugins",
+    "build_output": "./make",
+    "dist_bin": "./dist/bin",
+    "dist_frontend": "./dist"
+  }
+}

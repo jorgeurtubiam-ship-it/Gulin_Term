@@ -1,0 +1,34 @@
+{
+  "_ejemplo_conexion_ssh": {
+    "ssh:hostname": "192.168.1.100",
+    "ssh:user": "root",
+    "ssh:port": "22",
+    "ssh:identityfile": ["~/.ssh/id_rsa"],
+    "display:name": "Servidor Producción",
+    "display:order": 1,
+    "conn:wshenabled": true,
+    "conn:shellpath": "/bin/bash",
+    "cmd:initscript": "cd /proyecto && docker ps",
+    "ssh:passwordauthentication": false,
+    "ssh:pubkeyauthentication": true
+  },
+  "servidor-web": {
+    "ssh:hostname": "186.34.12.5",
+    "ssh:user": "ubuntu",
+    "ssh:port": "22",
+    "ssh:identityfile": ["~/.ssh/produccion.pem"],
+    "display:name": "VPS AWS Producción",
+    "display:order": 2,
+    "conn:wshenabled": true,
+    "cmd:initscript.zsh": "source ~/.zshrc && cd /var/www"
+  },
+  "raspberry-pi-casa": {
+    "ssh:hostname": "192.168.1.50",
+    "ssh:user": "pi",
+    "ssh:port": "22",
+    "display:name": "Raspberry Pi",
+    "display:order": 3,
+    "conn:wshenabled": false,
+    "ssh:passwordauthentication": true
+  }
+}
