@@ -151,10 +151,6 @@ if [ "$KEEP_CACHE" = false ]; then
 
     # macOS paths
     CACHE_DIRS_MAC=(
-        "$HOME/Library/Application Support/$APP_NAME"
-        "$HOME/Library/Application Support/${APP_NAME}-dev"
-        "$HOME/Library/Application Support/gulin"
-        "$HOME/Library/Application Support/gulin-dev"
         "$HOME/Library/Caches/$APP_NAME"
         "$HOME/Library/Caches/gulin"
         "$HOME/Library/Preferences/dev.gulin.app.plist"

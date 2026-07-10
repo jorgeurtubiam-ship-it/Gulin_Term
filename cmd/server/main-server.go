@@ -493,6 +493,18 @@ func main() {
 		log.Printf("error ensuring gulin presets dir: %v\n", err)
 		return
 	}
+
+	err = gulinbase.EnsureEmptyConfigFiles()
+	if err != nil {
+		log.Printf("error ensuring empty config files: %v\n", err)
+		return
+	}
+
+	err = gulinbase.EnsurePromptsDir()
+	if err != nil {
+		log.Printf("error ensuring prompts dir: %v\n", err)
+		return
+	}
 	err = gulinbase.EnsureGulinCachesDir()
 	if err != nil {
 		log.Printf("error ensuring gulin caches dir: %v\n", err)

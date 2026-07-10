@@ -2,6 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  ReactFlow,
+  Controls,
+  Background,
+  applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
+  Node,
+  Edge,
+  Handle,
+  Position
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import { useAtomValue } from "jotai";
 import { atoms } from "@/app/store/global-atoms";
 import { AgentData, AgentGroup, AgentChatMessage, AgentTask } from "./auto-agents-types";
@@ -9,6 +22,7 @@ import parser from "cron-parser";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { ClientModel } from "@/app/store/client-model";
+import { getWebServerEndpoint } from "@/util/endpoints";
 
 const CONFIG_PATH = "agents_autonomos.json";
 
@@ -18,6 +32,144 @@ async function getConfigDir(): Promise<string> {
     return window.api.getConfigDir();
 }
 
+const CustomAgentNode = ({ data }: any) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [activeTab, setActiveTab] = useState<"chat"|"logs">("chat");
+    const [input, setInput] = useState("");
+    const messages = data.messages || [];
+
+    // Filter tool executions for the logs tab
+    const logs = messages.filter((m: any) => m.role === "assistant" && m.text.includes("[⚙️")).map((m:any) => m.text).join("\n\n") || "No hay logs de herramientas aún...";
+
+    return (
+        <div className={`bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-2xl transition-all duration-200 ${isExpanded ? 'w-[600px] h-[750px] flex flex-col' : 'w-[250px]'}`}>
+            <Handle type="target" position={Position.Left} className="w-3 h-3 bg-indigo-500" />
+            <div className="flex items-center justify-between mb-2 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${data.status === 'running' ? 'bg-yellow-400 animate-pulse' : data.status === 'success' ? 'bg-green-500' : data.status === 'error' ? 'bg-red-500' : 'bg-gray-500'}`}></div>
+                    <div className="text-white font-medium text-base">{data.label}</div>
+                </div>
+                <div className="flex gap-2">
+                    {data.onConfigClick && (
+                        <button onClick={(e) => { e.stopPropagation(); data.onConfigClick(); }} className="text-gray-400 hover:text-white" title="Configuración">⚙️</button>
+                    )}
+                    <button className="text-gray-400 hover:text-white" title={isExpanded ? "Colapsar" : "Expandir"}>
+                        {isExpanded ? '🗕' : '🗖'}
+                    </button>
+                </div>
+            </div>
+            {!isExpanded ? (
+                <div className="text-sm text-gray-400 mt-1">{data.status === 'running' ? 'Procesando...' : data.status === 'idle' ? 'Inactivo' : data.status === 'success' ? 'Terminado' : 'Error'}</div>
+            ) : (
+                <>
+                    <div className="flex gap-4 border-b border-gray-600 mb-2 px-1">
+                        <button onClick={() => setActiveTab("chat")} className={`pb-1 text-sm font-medium ${activeTab === 'chat' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-300'}`}>Chat</button>
+                        <button onClick={() => setActiveTab("logs")} className={`pb-1 text-sm font-medium ${activeTab === 'logs' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-300'}`}>Logs</button>
+                    </div>
+                    {activeTab === 'chat' ? (
+                        <div className="flex-1 overflow-y-auto mb-3 space-y-2 bg-gray-900/50 p-3 rounded nowheel nodrag">
+                            {messages.length === 0 ? (
+                                <div className="text-gray-500 text-sm text-center py-4">No hay mensajes</div>
+                            ) : (
+                                messages.map((msg: any, i: number) => (
+                                    <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
+                                        <div className={`px-3 py-2 rounded text-sm max-w-[90%] ${msg.role === "user" ? "bg-indigo-700 text-white" : "bg-gray-800 text-gray-200"}`}>
+                                            <div className="whitespace-pre-wrap">{msg.text}</div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex-1 overflow-y-auto mb-3 bg-black/80 p-3 rounded nowheel nodrag border border-gray-700 font-mono text-xs text-green-400">
+                            <pre className="whitespace-pre-wrap">{logs}</pre>
+                        </div>
+                    )}
+                    <div className="flex gap-2 shrink-0">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    data.onSendMessage(input, data.agentId, false);
+                                    setInput("");
+                                }
+                            }}
+                            className="flex-1 px-3 py-2 rounded bg-gray-700 border border-gray-600 text-sm focus:outline-none focus:border-indigo-500 nodrag"
+                            placeholder={`Mensaje a ${data.label}...`}
+                        />
+                        <button onClick={() => { data.onSendMessage(input, data.agentId, false); setInput(""); }} className="bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded text-sm nodrag font-medium">
+                            Enviar
+                        </button>
+                    </div>
+                </>
+            )}
+            <Handle type="source" position={Position.Right} className="w-3 h-3 bg-indigo-500" />
+        </div>
+    );
+};
+
+const GroupChatPanel = ({ messages, onSendMessage }: { messages: any[], onSendMessage: (msg: string, id: string | null, isGroup: boolean) => void }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [input, setInput] = useState("");
+
+    return (
+        <div className={`fixed bottom-4 right-4 z-50 bg-indigo-950 border border-indigo-500/50 rounded-lg shadow-2xl transition-all duration-300 flex flex-col overflow-hidden ${isExpanded ? 'w-[600px] h-[500px]' : 'w-[300px] h-[48px]'}`}>
+            <div className="flex items-center justify-between px-4 py-3 cursor-pointer bg-indigo-900/80 hover:bg-indigo-800/80 transition-colors" onClick={() => setIsExpanded(!isExpanded)}>
+                <div className="flex items-center gap-2">
+                    <span className="text-xl">💬</span>
+                    <div className="text-white font-medium text-base">Chat Grupal</div>
+                </div>
+                <button className="text-indigo-300 hover:text-white">
+                    {isExpanded ? '▼' : '▲'}
+                </button>
+            </div>
+            {isExpanded && (
+                <div className="flex flex-col flex-1 bg-gray-900/90 p-3">
+                    <div className="flex-1 overflow-y-auto mb-3 space-y-3 pr-2">
+                        {messages.length === 0 ? (
+                            <div className="text-gray-500 text-sm text-center py-4 flex flex-col items-center gap-2">
+                                <span className="text-3xl opacity-50">🤖</span>
+                                Mensaje para todos los agentes
+                            </div>
+                        ) : (
+                            messages.map((msg: any, i: number) => (
+                                <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
+                                    <div className={`px-3 py-2 rounded-lg text-sm max-w-[90%] shadow-md ${msg.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-200 border border-gray-700"}`}>
+                                        {msg.role === "assistant" && msg.agent_id && (
+                                            <div className="text-xs text-indigo-300 font-semibold mb-1 border-b border-gray-700/50 pb-1">{msg.agent_name || msg.agent_id}</div>
+                                        )}
+                                        <div className="whitespace-pre-wrap">{msg.text}</div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    <div className="flex gap-2 shrink-0 bg-gray-800 p-2 rounded-lg border border-gray-700">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    onSendMessage(input, null, true);
+                                    setInput("");
+                                }
+                            }}
+                            className="flex-1 px-3 py-2 bg-transparent text-sm focus:outline-none text-white placeholder-gray-400"
+                            placeholder="Mensaje para todos los agentes..."
+                        />
+                        <button onClick={() => { onSendMessage(input, null, true); setInput(""); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors shadow-lg">
+                            Ejecutar
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 export function AutoAgentsWidget() {
     const [agents, setAgents] = useState<AgentData[]>([]);
     const [groups, setGroups] = useState<AgentGroup[]>([]);
@@ -26,10 +178,235 @@ export function AutoAgentsWidget() {
     const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
     const [chatInput, setChatInput] = useState("");
     const [chatMode, setChatMode] = useState<"group" | "individual">("group");
-    const [viewMode, setViewMode] = useState<"chat" | "edit" | "tasks">("chat");
+    const [viewMode, setViewMode] = useState<"chat" | "edit" | "tasks" | "canvas">("chat");
+
+    // React Flow State
+    const [nodes, setNodes] = useState<Node[]>([]);
+    const [edges, setEdges] = useState<Edge[]>([]);
+    const [agentStatuses, setAgentStatuses] = useState<Record<string, "idle" | "running" | "success" | "error">>({});
+    const nodeTypes = useRef({ agentNode: CustomAgentNode }).current;
+    
+    // Additional state moved up
     const [isLoading, setIsLoading] = useState(true);
     const [presetProvider, setPresetProvider] = useState<string>("custom");
+    const [isDragging, setIsDragging] = useState(false);
+    const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
     const aiConfigs = useAtomValue(atoms.gulinaiModeConfigAtom);
+    
+    // Config getters
+    const resolveApiKey = useCallback((providerKey: string) => {
+        if (!aiConfigs) return "";
+        if (aiConfigs[providerKey]) {
+            return aiConfigs[providerKey]["ai:apikey"] || aiConfigs[providerKey]["ai:apikey-secret"];
+        }
+        return "";
+    }, [aiConfigs]);
+
+    const resolveEndpoint = useCallback((providerKey: string) => {
+        if (!aiConfigs) return "";
+        if (aiConfigs[providerKey]) {
+            return aiConfigs[providerKey]["ai:endpoint"];
+        }
+        return "";
+    }, [aiConfigs]);
+
+    // Send message to agents
+    const sendMessage = useCallback(async (overridePrompt?: string, overrideAgentId?: string | null, isGroupOverride?: boolean) => {
+        const promptToUse = overridePrompt || chatInput;
+        if (!promptToUse.trim() && attachedFiles.length === 0) return;
+
+        let finalPrompt = promptToUse;
+        if (attachedFiles.length > 0) {
+            finalPrompt += "\n\n[Contexto Adjunto]\nPor favor, lee y ten en cuenta los siguientes archivos:\n" + attachedFiles.map(p => `- ${p}`).join("\n");
+        }
+
+        const userMsg: AgentChatMessage = {
+            role: "user",
+            text: promptToUse + (attachedFiles.length > 0 ? `\n*(+${attachedFiles.length} archivos adjuntos)*` : ""),
+            timestamp: new Date().toISOString(),
+            is_group: isGroupOverride ?? (chatMode === "group"),
+            agent_id: (!isGroupOverride && chatMode === "individual") ? (selectedAgentId || undefined) : undefined
+        };
+        setChatMessages(prev => [...prev, userMsg]);
+        if (!overridePrompt) setChatInput("");
+        setAttachedFiles([]);
+
+        if (overrideAgentId || (chatMode === "individual" && selectedAgentId)) {
+            const targetId = overrideAgentId || selectedAgentId;
+            const agent = agents.find(a => a.id === targetId);
+            if (!agent) return;
+
+            const apiKey = resolveApiKey(agent.provider) || agent.api_key_secret;
+            if (!apiKey || apiKey.includes("_KEY")) {
+                const errorMsg: AgentChatMessage = {
+                    role: "assistant",
+                    agent_id: agent.id,
+                    text: `Error: No se encontró la API Key para el proveedor '${agent.provider}' en la configuración global de GuLiN.`,
+                    timestamp: new Date().toISOString()
+                };
+                setChatMessages(prev => [...prev, errorMsg]);
+                return;
+            }
+
+            const endpoint = resolveEndpoint(agent.provider) || agent.endpoint;
+            
+            // Create a temporary ID for streaming message
+            const tempMsgId = "msg-" + Date.now().toString();
+            const initialAgentMsg: AgentChatMessage = {
+                role: "assistant",
+                agent_id: agent.id,
+                text: "...",
+                timestamp: new Date().toISOString(),
+                is_group: false
+            };
+            // Add the placeholder to the state (we append an _id for tracking)
+            setChatMessages(prev => [...prev, { ...initialAgentMsg, _tempId: tempMsgId } as any]);
+
+            setAgentStatuses(prev => ({ ...prev, [agent.id]: "running" }));
+            try {
+                let accumulatedResp = "";
+                await callAgentAPI(agent, finalPrompt, apiKey, endpoint, aiConfigs, (chunk: string, fullMsg: string) => {
+                    accumulatedResp = fullMsg;
+                    // Update the specific message in state
+                    setChatMessages(prev => prev.map(msg => 
+                        (msg as any)._tempId === tempMsgId 
+                            ? { ...msg, text: fullMsg } 
+                            : msg
+                    ));
+                });
+                
+                // Final update without tempId
+                setChatMessages(prev => prev.map(msg => 
+                    (msg as any)._tempId === tempMsgId 
+                        ? { role: "assistant", agent_id: agent.id, text: accumulatedResp, timestamp: new Date().toISOString(), is_group: false } 
+                        : msg
+                ));
+                setAgentStatuses(prev => ({ ...prev, [agent.id]: "success" }));
+            } catch (err: any) {
+                console.error("Chat error:", err);
+                setAgentStatuses(prev => ({ ...prev, [agent.id]: "error" }));
+                setChatMessages(prev => prev.map(msg => 
+                    (msg as any)._tempId === tempMsgId 
+                        ? { role: "assistant", agent_id: agent.id, text: `Error: ${err.message}`, timestamp: new Date().toISOString(), is_group: false } 
+                        : msg
+                ));
+            }
+            setTimeout(() => setAgentStatuses(prev => ({ ...prev, [agent.id]: "idle" })), 3000);
+        } else {
+            // Group chat logic
+            const enabledAgents = agents.filter(a => a.enabled);
+            if (enabledAgents.length === 0) return;
+
+            enabledAgents.forEach(async (agent) => {
+                const apiKey = resolveApiKey(agent.provider) || agent.api_key_secret;
+                if (!apiKey || apiKey.includes("_KEY")) {
+                    const errorMsg: AgentChatMessage = {
+                        role: "assistant",
+                        agent_id: agent.id,
+                        agent_name: agent.name,
+                        text: `Error: No se encontró la API Key para el proveedor '${agent.provider}'.`,
+                        timestamp: new Date().toISOString(),
+                        is_group: true
+                    };
+                    setChatMessages(prev => [...prev, errorMsg]);
+                    return;
+                }
+
+                const endpoint = resolveEndpoint(agent.provider) || agent.endpoint;
+                
+                const tempMsgId = "msg-" + agent.id + "-" + Date.now().toString();
+                const initialAgentMsg: AgentChatMessage = {
+                    role: "assistant",
+                    agent_id: agent.id,
+                    agent_name: agent.name,
+                    text: "...",
+                    timestamp: new Date().toISOString(),
+                    is_group: true
+                };
+                setChatMessages(prev => [...prev, { ...initialAgentMsg, _tempId: tempMsgId } as any]);
+
+                setAgentStatuses(prev => ({ ...prev, [agent.id]: "running" }));
+                try {
+                    let accumulatedResp = "";
+                    await callAgentAPI(agent, finalPrompt, apiKey, endpoint, aiConfigs, (chunk: string, fullMsg: string) => {
+                        accumulatedResp = fullMsg;
+                        setChatMessages(prev => prev.map(msg => 
+                            (msg as any)._tempId === tempMsgId 
+                                ? { ...msg, text: fullMsg } 
+                                : msg
+                        ));
+                    });
+                    
+                    setChatMessages(prev => prev.map(msg => 
+                        (msg as any)._tempId === tempMsgId 
+                            ? { role: "assistant", agent_id: agent.id, agent_name: agent.name, text: accumulatedResp, timestamp: new Date().toISOString(), is_group: true } 
+                            : msg
+                    ));
+                    setAgentStatuses(prev => ({ ...prev, [agent.id]: "success" }));
+                } catch (err: any) {
+                    console.error("Group Chat error for", agent.name, ":", err);
+                    setAgentStatuses(prev => ({ ...prev, [agent.id]: "error" }));
+                    setChatMessages(prev => prev.map(msg => 
+                        (msg as any)._tempId === tempMsgId 
+                            ? { role: "assistant", agent_id: agent.id, agent_name: agent.name, text: `Error: ${err.message}`, timestamp: new Date().toISOString(), is_group: true } 
+                            : msg
+                    ));
+                }
+                setTimeout(() => setAgentStatuses(prev => ({ ...prev, [agent.id]: "idle" })), 3000);
+            });
+        }
+    }, [chatInput, attachedFiles, chatMode, selectedAgentId, agents, aiConfigs, resolveApiKey, resolveEndpoint]);
+
+    const onNodesChange = useCallback(
+        (changes: any) => setNodes((nds) => applyNodeChanges(changes, nds)),
+        []
+    );
+    const onEdgesChange = useCallback(
+        (changes: any) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+        []
+    );
+    const onConnect = useCallback(
+        (params: any) => setEdges((eds) => addEdge(params, eds)),
+        []
+    );
+
+    useEffect(() => {
+        setNodes((prev) => {
+            const prevMap = new Map(prev.map(n => [n.id, n]));
+            const newNodes: Node[] = [];
+            
+            // Add Agent Nodes
+            agents.forEach((agent, i) => {
+                const existing = prevMap.get(agent.id);
+                newNodes.push(existing ? { 
+                    ...existing, 
+                    data: { 
+                        ...existing.data, 
+                        label: agent.name, 
+                        status: agentStatuses[agent.id] || "idle",
+                        messages: chatMessages.filter(m => !m.is_group && m.agent_id === agent.id),
+                        onSendMessage: sendMessage,
+                        agentId: agent.id,
+                        onConfigClick: () => { setSelectedAgentId(agent.id); setViewMode("edit"); }
+                    } 
+                } : {
+                    id: agent.id,
+                    type: 'agentNode',
+                    position: { x: (i % 3) * 450 + 100, y: Math.floor(i / 3) * 300 + 100 },
+                    data: { 
+                        label: agent.name,
+                        status: agentStatuses[agent.id] || "idle",
+                        messages: chatMessages.filter(m => !m.is_group && m.agent_id === agent.id),
+                        onSendMessage: sendMessage,
+                        agentId: agent.id,
+                        onConfigClick: () => { setSelectedAgentId(agent.id); setViewMode("edit"); }
+                    }
+                });
+            });
+            return newNodes;
+        });
+    }, [agents, agentStatuses, chatMessages, sendMessage]);
+
     const lastRunRef = useRef<Record<string, number>>({});
 
     // Load config from file
@@ -55,9 +432,10 @@ export function AutoAgentsWidget() {
         } catch (err) {
             console.error("Failed to load agents config:", err);
         }
-        // Fallback: try reading from ~/.config/gulin/ (prod path)
+        // Fallback: try reading using dynamic config directory
         try {
-            const filePath = `/Users/lordzero1/.config/gulin/${CONFIG_PATH}`;
+            const configDir = await window.api.getConfigDir();
+            const filePath = `${configDir}/${CONFIG_PATH}`;
             const result = await window.api.readTextFile(filePath);
             if (result.success && result.content) {
                 const data = JSON.parse(result.content);
@@ -89,16 +467,6 @@ export function AutoAgentsWidget() {
         }
     };
 
-    const resolveApiKey = useCallback((provider: string) => {
-        if (!aiConfigs) return null;
-        for (const key in aiConfigs) {
-            const conf = aiConfigs[key];
-            if (conf["ai:provider"] === provider && conf["ai:apitoken"]) {
-                return conf["ai:apitoken"];
-            }
-        }
-        return null;
-    }, [aiConfigs]);
 
     // Cron Runner
     useEffect(() => {
@@ -108,6 +476,10 @@ export function AutoAgentsWidget() {
 
             tasks.forEach(task => {
                 if (!task.enabled) return;
+
+                const agent = agents.find(a => a.id === task.agent_id);
+                if (!agent) return;
+
                 try {
                     const cronObj = parser.parseExpression(task.cron);
                     const prev = cronObj.prev().toDate();
@@ -136,8 +508,10 @@ export function AutoAgentsWidget() {
             return;
         }
 
+        const endpoint = resolveEndpoint(agent.provider) || agent.endpoint;
+
         try {
-            const resp = await callAgentAPI(agent, task.prompt, apiKey);
+            const resp = await callAgentAPI(agent, task.prompt, apiKey, endpoint, aiConfigs);
             const agentMsg: AgentChatMessage = {
                 role: "assistant",
                 agent_id: agent.id,
@@ -157,90 +531,6 @@ export function AutoAgentsWidget() {
         }
     };
 
-    // Send message to agents
-    const sendMessage = useCallback(async () => {
-        if (!chatInput.trim()) return;
-
-        const userMsg: AgentChatMessage = {
-            role: "user",
-            text: chatInput,
-            timestamp: new Date().toISOString()
-        };
-        setChatMessages(prev => [...prev, userMsg]);
-        setChatInput("");
-
-        if (chatMode === "individual" && selectedAgentId) {
-            // Send to single agent
-            const agent = agents.find(a => a.id === selectedAgentId);
-            if (!agent) return;
-
-            const apiKey = resolveApiKey(agent.provider) || agent.api_key_secret;
-            if (!apiKey || apiKey.includes("_KEY")) {
-                const errorMsg: AgentChatMessage = {
-                    role: "assistant",
-                    agent_id: agent.id,
-                    text: `Error: No se encontró la API Key para el proveedor '${agent.provider}' en la configuración global de GuLiN.`,
-                    timestamp: new Date().toISOString()
-                };
-                setChatMessages(prev => [...prev, errorMsg]);
-                return;
-            }
-
-            try {
-                const resp = await callAgentAPI(agent, chatInput, apiKey);
-                const agentMsg: AgentChatMessage = {
-                    role: "assistant",
-                    agent_id: agent.id,
-                    text: resp,
-                    timestamp: new Date().toISOString()
-                };
-                setChatMessages(prev => [...prev, agentMsg]);
-            } catch (err: any) {
-                const errorMsg: AgentChatMessage = {
-                    role: "assistant",
-                    agent_id: agent.id,
-                    text: `Error: ${err.message}`,
-                    timestamp: new Date().toISOString()
-                };
-                setChatMessages(prev => [...prev, errorMsg]);
-            }
-        } else {
-            // Send to all enabled agents in group
-            const enabledAgents = agents.filter(a => a.enabled);
-            for (const agent of enabledAgents) {
-                const apiKey = resolveApiKey(agent.provider) || agent.api_key_secret;
-                if (!apiKey || apiKey.includes("_KEY")) {
-                    const errorMsg: AgentChatMessage = {
-                        role: "assistant",
-                        agent_id: agent.id,
-                        text: `Error: No se encontró la API Key para el proveedor '${agent.provider}' en la configuración global de GuLiN.`,
-                        timestamp: new Date().toISOString()
-                    };
-                    setChatMessages(prev => [...prev, errorMsg]);
-                    continue;
-                }
-
-                try {
-                    const resp = await callAgentAPI(agent, chatInput, apiKey);
-                    const agentMsg: AgentChatMessage = {
-                        role: "assistant",
-                        agent_id: agent.id,
-                        text: resp,
-                        timestamp: new Date().toISOString()
-                    };
-                    setChatMessages(prev => [...prev, agentMsg]);
-                } catch (err: any) {
-                    const errorMsg: AgentChatMessage = {
-                        role: "assistant",
-                        agent_id: agent.id,
-                        text: `Error: ${err.message}`,
-                        timestamp: new Date().toISOString()
-                    };
-                    setChatMessages(prev => [...prev, errorMsg]);
-                }
-            }
-        }
-    }, [chatInput, chatMode, selectedAgentId, agents, resolveApiKey]);
 
     // Create new agent
     const createAgent = useCallback(() => {
@@ -253,7 +543,7 @@ export function AutoAgentsWidget() {
             endpoint: "https://api.deepseek.com/v1/chat/completions",
             model: "deepseek-chat",
             api_key_secret: "DEEPSEEK_KEY",
-            system_prompt: "Eres un asistente útil.",
+            system_prompt: "Eres un experto. REGLA ESTRICTA: NO inventes ni asumas información del entorno (bases de datos, archivos, etc). SIEMPRE usa tus herramientas para explorar el entorno primero (ej. ver conexiones DB, leer archivos), o haz preguntas aclaratorias al usuario si te falta contexto.",
             color: "#" + Math.floor(Math.random()*16777215).toString(16),
             enabled: true,
             lastStatus: "idle"
@@ -331,246 +621,122 @@ export function AutoAgentsWidget() {
     const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
     return (
-        <div className="flex flex-col h-full w-full bg-[#1a1a2e] text-gray-200">
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
-                <div className="flex items-center gap-2">
-                    <span className="text-lg">🤖</span>
-                    <span className="font-semibold">Agentes Autónomos</span>
+        <div className="flex flex-col h-full w-full bg-[#1a1a2e] text-gray-200 relative">
+            {/* Header / Floating Controls */}
+            <div className="absolute top-4 left-4 z-10 flex gap-2">
+                <div className="flex items-center gap-2 bg-gray-800/80 p-2 px-4 rounded-lg shadow-lg border border-gray-700 backdrop-blur">
+                    <span className="text-xl">🤖</span>
+                    <span className="font-semibold text-sm">Lienzo de Orquestación</span>
                 </div>
+            </div>
+            <div className="absolute top-4 right-4 z-10 flex gap-2">
                 <button
                     onClick={createAgent}
-                    className="px-3 py-1 text-sm bg-indigo-600 hover:bg-indigo-500 rounded transition-colors"
+                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-lg border border-indigo-500/50 transition-colors font-medium flex items-center gap-2"
                 >
                     + Nuevo Agente
                 </button>
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
-                {/* Sidebar: Agent List */}
-                <div className="w-64 border-r border-gray-700 overflow-y-auto p-2">
-                    {agents.length === 0 ? (
-                        <div className="text-gray-500 text-sm text-center py-8">
-                            No hay agentes creados aún
+            {/* Main Canvas Area */}
+            <div className="flex-1 w-full h-full bg-[#1a1a2e]">
+                <ReactFlow
+                    nodes={nodes}
+                    edges={edges.map(e => ({ ...e, animated: agentStatuses[e.source] === "running" }))}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    colorMode="dark"
+                >
+                    <Background />
+                    <Controls />
+                </ReactFlow>
+            </div>
+            
+            {/* Group Chat Fixed Panel */}
+            <GroupChatPanel messages={chatMessages.filter(m => m.is_group)} onSendMessage={sendMessage} />
+
+            {/* Configuration Modal */}
+            {selectedAgent && viewMode === "edit" && (
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                            <h3 className="text-lg font-medium text-indigo-400">Configuración: {selectedAgent.name}</h3>
+                            <button onClick={() => setViewMode("canvas")} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
                         </div>
-                    ) : (
-                        agents.map(agent => (
-                            <div
-                                key={agent.id}
-                                onClick={() => {
-                                    setSelectedAgentId(agent.id === selectedAgentId ? null : agent.id);
-                                    if (agent.id !== selectedAgentId) {
-                                        setChatMode("individual");
-                                        setViewMode("chat");
-                                    }
-                                }}
-                                className={`flex items-center gap-2 p-2 rounded cursor-pointer mb-1 transition-colors
-                                    ${selectedAgentId === agent.id ? "bg-indigo-900/50 border border-indigo-500" : "hover:bg-gray-800 border border-transparent"}`}
-                            >
-                                <span className="text-lg">{agent.icon}</span>
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium truncate">{agent.name}</div>
-                                    <div className="text-xs text-gray-500 truncate">{agent.model}</div>
-                                </div>
-                                <div className="flex gap-1">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); deleteAgent(agent.id); }}
-                                        className="text-xs px-1.5 py-0.5 bg-red-900/50 hover:bg-red-800 rounded"
-                                        title="Eliminar"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-
-                {/* Main Content */}
-                <div className="flex-1 flex flex-col">
-                    {/* Top Bar for individual mode */}
-                    {chatMode === "individual" && selectedAgent && (
-                        <div className="flex gap-4 border-b border-gray-700 bg-gray-800/50 px-4 pt-3">
-                            <button className={`pb-2 px-2 text-sm ${viewMode === "chat" ? "border-b-2 border-indigo-500 text-white font-medium" : "text-gray-400 hover:text-gray-200"}`} onClick={() => setViewMode("chat")}>Chat</button>
-                            <button className={`pb-2 px-2 text-sm ${viewMode === "edit" ? "border-b-2 border-indigo-500 text-white font-medium" : "text-gray-400 hover:text-gray-200"}`} onClick={() => setViewMode("edit")}>Configuración</button>
-                            <button className={`pb-2 px-2 text-sm ${viewMode === "tasks" ? "border-b-2 border-indigo-500 text-white font-medium" : "text-gray-400 hover:text-gray-200"}`} onClick={() => setViewMode("tasks")}>Tareas Automáticas</button>
-                        </div>
-                    )}
-
-                    {/* View Modes */}
-                    <div className="flex-1 flex flex-col overflow-hidden">
-                        {/* 1. Chat View */}
-                        {(!selectedAgent || (chatMode === "individual" && viewMode === "chat") || chatMode === "group") && (
-                            <div className="flex-1 flex flex-col p-2 h-full">
-                                {/* Chat Mode Toggle */}
-                                {agents.length > 1 && (
-                                    <div className="flex gap-2 mb-2">
-                                        <button
-                                            onClick={() => { setChatMode("group"); setSelectedAgentId(null); setViewMode("chat"); }}
-                                            className={`px-3 py-1 text-xs rounded ${chatMode === "group" ? "bg-indigo-600" : "bg-gray-700"}`}
-                                        >
-                                            Chat Grupal ({agents.filter(a => a.enabled).length} agentes)
-                                        </button>
-                                        {selectedAgent && (
-                                            <button
-                                                onClick={() => setChatMode("individual")}
-                                                className={`px-3 py-1 text-xs rounded ${chatMode === "individual" ? "bg-indigo-600" : "bg-gray-700"}`}
-                                            >
-                                                Chat con {selectedAgent.name}
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Messages */}
-                                <div className="flex-1 overflow-y-auto mb-2 space-y-2">
-                                    {chatMessages.length === 0 ? (
-                                        <div className="text-gray-500 text-sm text-center py-8">
-                                            {chatMode === "group" 
-                                                ? "Escribe un mensaje para todos los agentes del grupo"
-                                                : `Escribe un mensaje para ${selectedAgent?.name || "el agente seleccionado"}`
-                                            }
-                                        </div>
-                                    ) : (
-                                        chatMessages.map((msg, i) => (
-                                            <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
-                                                {msg.role === "assistant" && (
-                                                    <span className="text-lg">{agents.find(a => a.id === msg.agent_id)?.icon || "🤖"}</span>
-                                                )}
-                                                <div className={`px-3 py-2 rounded text-sm max-w-[80%] ${
-                                                    msg.role === "user" 
-                                                        ? "bg-indigo-700 text-white" 
-                                                        : "bg-gray-800 text-gray-200"
-                                                }`}>
-                                                    {msg.role === "assistant" && msg.agent_id && (
-                                                        <div className="text-xs text-gray-400 mb-1">
-                                                            {agents.find(a => a.id === msg.agent_id)?.name || msg.agent_id}
-                                                        </div>
-                                                    )}
-                                                    <div className="whitespace-pre-wrap">{msg.text}</div>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-
-                                {/* Input */}
-                                <div className="flex gap-2 shrink-0">
-                                    <input
-                                        type="text"
-                                        value={chatInput}
-                                        onChange={(e) => setChatInput(e.target.value)}
-                                        onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                                        placeholder={chatMode === "group" ? "Mensaje para todos los agentes..." : `Mensaje para ${selectedAgent?.name || "el agente"}...`}
-                                        className="flex-1 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-indigo-500"
-                                    />
-                                    <button
-                                        onClick={sendMessage}
-                                        disabled={!chatInput.trim()}
-                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 rounded text-sm transition-colors"
-                                    >
-                                        Enviar
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 2. Agent Edit Form */}
-                        {chatMode === "individual" && selectedAgent && viewMode === "edit" && (
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6 h-full">
-                                <div>
-                                    <h3 className="text-lg font-medium text-indigo-400 mb-1">Configuración del Agente</h3>
-                                    <p className="text-sm text-gray-400 mb-4">Modifica los parámetros de identidad y conexión de tu agente.</p>
-                                </div>
-                                
+                        <div className="p-6 overflow-y-auto space-y-6">
                                 {(() => {
-                                    const uniqueProviders = Array.from(new Set(Object.values(aiConfigs || {}).map((c: any) => c["ai:provider"] || "custom")));
-                                    // Ensure Custom is at the top if it exists, or just add it
-                                    if (!uniqueProviders.includes("custom")) uniqueProviders.push("custom");
-                                    uniqueProviders.sort((a, b) => a === "custom" ? -1 : b === "custom" ? 1 : a.localeCompare(b));
+                                    // 1. Filtrar los configs del sistema (gulin) y ordenar
+                                    const otherProviderConfigs = Object.entries(aiConfigs || {})
+                                        .filter(([key, config]: [string, any]) => config["ai:provider"] !== "gulin")
+                                        .map(([key, config]: [string, any]) => ({ key, ...config }))
+                                        .sort((a, b) => {
+                                            const provA = (a["ai:bridge-provider"] || a["ai:provider"] || "custom").toLowerCase();
+                                            const provB = (b["ai:bridge-provider"] || b["ai:provider"] || "custom").toLowerCase();
+                                            if (provA !== provB) return provA.localeCompare(provB);
+                                            const nameA = (a.name || a.key).toLowerCase();
+                                            const nameB = (b.name || b.key).toLowerCase();
+                                            return nameA.localeCompare(nameB);
+                                        });
+
+                                    // 2. Obtener proveedores únicos
+                                    const uniqueProviders = Array.from(new Set(otherProviderConfigs.map(c => c["ai:bridge-provider"] || c["ai:provider"] || "custom")));
+                                    if (uniqueProviders.length === 0) uniqueProviders.push("custom");
+                                    
+                                    // 3. Determinar el proveedor y modelo actual basado en agent.provider (que guarda el configKey)
+                                    const currentConfig = aiConfigs?.[selectedAgent.provider];
+                                    let currentProvider = "custom";
+                                    if (currentConfig && currentConfig["ai:provider"] !== "gulin") {
+                                        currentProvider = currentConfig["ai:bridge-provider"] || currentConfig["ai:provider"] || "custom";
+                                    }
+
+                                    // 4. Obtener modelos para el proveedor seleccionado
+                                    const providerModels = otherProviderConfigs.filter(c => (c["ai:bridge-provider"] || c["ai:provider"] || "custom") === currentProvider);
 
                                     return (
                                         <div className="mb-6 flex gap-4 bg-gray-800/30 p-4 rounded border border-gray-700/50">
                                             <div className="flex-1 flex flex-col">
-                                                <label className="text-[10px] text-gray-500 mb-1 font-bold tracking-wider uppercase">Provider</label>
+                                                <label className="text-[10px] text-gray-500 mb-1 font-bold tracking-wider uppercase">Proveedor</label>
                                                 <select 
-                                                    className="w-full px-3 py-2 bg-[#1e1e24] border border-gray-700 rounded text-sm text-gray-200 focus:border-indigo-500 outline-none"
-                                                    value={presetProvider}
-                                                    onChange={(e) => setPresetProvider(e.target.value)}
+                                                    className="w-full px-3 py-2 bg-[#1e1e24] border border-gray-700 rounded text-sm text-gray-200 focus:border-indigo-500 outline-none capitalize"
+                                                    value={currentProvider}
+                                                    onChange={(e) => {
+                                                        const newProvider = e.target.value;
+                                                        const firstModel = otherProviderConfigs.find(c => (c["ai:bridge-provider"] || c["ai:provider"] || "custom") === newProvider);
+                                                        if (firstModel) {
+                                                            handleUpdateAgent({...selectedAgent, provider: firstModel.key, model: ""});
+                                                        }
+                                                    }}
                                                 >
                                                     {uniqueProviders.map(p => (
-                                                        <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                                                        <option key={p} value={p}>{p}</option>
                                                     ))}
                                                 </select>
                                             </div>
                                             <div className="flex-1 flex flex-col">
-                                                <label className="text-[10px] text-gray-500 mb-1 font-bold tracking-wider uppercase">Model</label>
+                                                <label className="text-[10px] text-gray-500 mb-1 font-bold tracking-wider uppercase">Modelo</label>
                                                 <select 
                                                     className="w-full px-3 py-2 bg-[#1e1e24] border border-gray-700 rounded text-sm text-gray-200 focus:border-indigo-500 outline-none"
-                                                    disabled={!presetProvider}
+                                                    value={selectedAgent.provider}
                                                     onChange={(e) => {
-                                                        const confKey = e.target.value;
-                                                        if (!confKey || !aiConfigs || !aiConfigs[confKey]) return;
-                                                        const conf = aiConfigs[confKey];
-                                                        const provider = conf["ai:provider"] || "";
-                                                        let endpoint = conf["ai:baseurl"] || "";
-                                                        if (!endpoint) {
-                                                            if (provider === "openai") endpoint = "https://api.openai.com/v1/chat/completions";
-                                                            else if (provider === "deepseek") endpoint = "https://api.deepseek.com/v1/chat/completions";
-                                                            else if (provider === "anthropic") endpoint = "https://api.anthropic.com/v1/messages";
-                                                            else if (provider === "google") endpoint = "https://generativelanguage.googleapis.com/v1beta/models/";
-                                                        }
-                                                        let model = conf["ai:model"] || "";
-                                                        if (!model) {
-                                                            if (provider === "openai") model = "gpt-4o-mini";
-                                                            else if (provider === "deepseek") model = "deepseek-chat";
-                                                            else if (provider === "anthropic") model = "claude-3-5-sonnet-20240620";
-                                                            else if (provider === "google") model = "gemini-1.5-flash-latest";
-                                                        }
-                                                        handleUpdateAgent({...selectedAgent, provider, endpoint, model});
-                                                        e.target.value = ""; // Reset this select
+                                                        handleUpdateAgent({...selectedAgent, provider: e.target.value, model: ""});
                                                     }}
-                                                    defaultValue=""
                                                 >
-                                                    <option value="" disabled>✨ Elige un modelo...</option>
-                                                    {presetProvider && aiConfigs && Object.entries(aiConfigs)
-                                                        .filter(([k, c]: [string, any]) => (c["ai:provider"] || "custom") === presetProvider)
-                                                        .map(([key, conf]: [string, any]) => {
-                                                            const model = conf["ai:model"] || "Default";
-                                                            const connectionName = conf.name || key;
-                                                            return (
-                                                                <option key={key} value={key}>
-                                                                    {connectionName} ({model})
-                                                                </option>
-                                                            );
-                                                        })
-                                                    }
+                                                    {!currentConfig && <option value={selectedAgent.provider} disabled>✨ Selecciona un modelo...</option>}
+                                                    {providerModels.map(c => (
+                                                        <option key={c.key} value={c.key}>
+                                                            {c.name || c.key} {c["ai:model"] ? `(${c["ai:model"]})` : ""}
+                                                        </option>
+                                                    ))}
                                                 </select>
                                             </div>
                                         </div>
                                     );
                                 })()}
 
-                                <datalist id="endpoints-list">
-                                    <option value="https://api.deepseek.com/v1/chat/completions" />
-                                    <option value="https://api.openai.com/v1/chat/completions" />
-                                    <option value="https://api.anthropic.com/v1/messages" />
-                                    <option value="https://generativelanguage.googleapis.com/v1beta/models/" />
-                                    <option value="http://localhost:11434/v1/chat/completions" />
-                                    {aiConfigs && Object.values(aiConfigs).map((conf: any, i) => conf["ai:baseurl"] ? (
-                                        <option key={i} value={conf["ai:baseurl"]} />
-                                    ) : null)}
-                                </datalist>
-                                
-                                <datalist id="models-list">
-                                    <option value="deepseek-chat" />
-                                    <option value="gpt-4o-mini" />
-                                    <option value="gpt-4o" />
-                                    <option value="claude-3-5-sonnet-20240620" />
-                                    <option value="llama3" />
-                                </datalist>
-
-                                <div className="grid grid-cols-2 gap-6 pb-6">
+                                <div className="grid grid-cols-2 gap-6 pb-6 border-b border-gray-700">
                                     <div className="flex flex-col">
                                         <label className="text-xs text-gray-400 mb-1">Nombre</label>
                                         <input type="text" onFocus={e => e.target.select()} value={selectedAgent.name} onChange={e => handleUpdateAgent({...selectedAgent, name: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" />
@@ -579,107 +745,162 @@ export function AutoAgentsWidget() {
                                         <label className="text-xs text-gray-400 mb-1">Icono (Emoji)</label>
                                         <input type="text" onFocus={e => e.target.select()} value={selectedAgent.icon} onChange={e => handleUpdateAgent({...selectedAgent, icon: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" />
                                     </div>
-                                    <div className="flex flex-col">
-                                        <label className="text-xs text-gray-400 mb-1">Proveedor Global</label>
-                                        <input type="text" onFocus={e => e.target.select()} value={selectedAgent.provider} onChange={e => handleUpdateAgent({...selectedAgent, provider: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" placeholder="ej: openai, deepseek..." />
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <label className="text-xs text-gray-400 mb-1">Modelo Específico</label>
-                                        <input list="models-list" type="text" onFocus={e => e.target.select()} value={selectedAgent.model} onChange={e => handleUpdateAgent({...selectedAgent, model: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" />
-                                    </div>
-                                    <div className="col-span-2 flex flex-col">
-                                        <label className="text-xs text-gray-400 mb-1">Endpoint API</label>
-                                        <input list="endpoints-list" type="text" onFocus={e => e.target.select()} value={selectedAgent.endpoint} onChange={e => handleUpdateAgent({...selectedAgent, endpoint: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" placeholder="Elige o escribe una URL..." />
-                                    </div>
                                     <div className="col-span-2 flex flex-col">
                                         <label className="text-xs text-gray-400 mb-1">System Prompt (Instrucciones)</label>
-                                        <textarea rows={6} value={selectedAgent.system_prompt} onChange={e => handleUpdateAgent({...selectedAgent, system_prompt: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none resize-none font-mono" />
+                                        <textarea rows={5} value={selectedAgent.system_prompt} onChange={e => handleUpdateAgent({...selectedAgent, system_prompt: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none resize-none font-mono" />
                                     </div>
                                 </div>
-                            </div>
-                        )}
-
-                        {/* 3. Tasks / Cron View */}
-                        {chatMode === "individual" && selectedAgent && viewMode === "tasks" && (
-                            <div className="flex-1 overflow-hidden p-6 flex flex-col h-full">
-                                <div className="flex items-center justify-between border-b border-gray-700 pb-4 mb-4 shrink-0">
-                                    <div>
-                                        <h3 className="text-lg font-medium text-indigo-400 mb-1">Tareas Programadas (Cron)</h3>
-                                        <p className="text-sm text-gray-400">Las tareas se ejecutarán en segundo plano de acuerdo a la expresión Cron.</p>
-                                    </div>
-                                    <button onClick={handleCreateTask} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium transition-colors shadow-lg">
-                                        + Nueva Tarea
+                                
+                                <div className="flex justify-between pt-2">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); deleteAgent(selectedAgent.id); setViewMode("canvas"); }}
+                                        className="px-4 py-2 bg-red-900/50 hover:bg-red-800 text-red-200 rounded text-sm transition-colors"
+                                    >
+                                        Eliminar Agente
+                                    </button>
+                                    <button
+                                        onClick={() => setViewMode("canvas")}
+                                        className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-sm font-medium transition-colors"
+                                    >
+                                        Guardar y Cerrar
                                     </button>
                                 </div>
-                                <div className="space-y-3 flex-1 overflow-y-auto pr-2">
-                                    {tasks.filter(t => t.agent_id === selectedAgent.id).length === 0 ? (
-                                        <div className="text-gray-500 text-sm text-center py-12 bg-gray-800/20 rounded border border-dashed border-gray-700">
-                                            No hay tareas programadas para este agente.<br/>Haz clic en "+ Nueva Tarea" para comenzar.
-                                        </div>
-                                    ) : (
-                                        tasks.filter(t => t.agent_id === selectedAgent.id).map(task => (
-                                            <div key={task.id} className={`p-4 rounded border transition-colors ${task.enabled ? 'bg-gray-800/80 border-indigo-900/50 shadow-md' : 'bg-gray-800/30 border-gray-800 opacity-60'}`}>
-                                                <div className="flex justify-between items-start mb-3">
-                                                    <div className="flex items-center gap-3">
-                                                        <span className="px-2 py-1 bg-gray-900 rounded text-xs font-mono text-indigo-400 border border-indigo-900/50" title="Cron Expression">{task.cron}</span>
-                                                        <span className="text-xs text-gray-500 font-mono">ID: {task.id.split("-")[1]}</span>
-                                                    </div>
-                                                    <div className="flex gap-2">
-                                                        <button onClick={() => toggleTask(task.id)} className={`text-xs px-3 py-1.5 rounded transition-colors font-medium ${task.enabled ? 'bg-amber-600/20 text-amber-500 hover:bg-amber-600/30' : 'bg-emerald-600/20 text-emerald-500 hover:bg-emerald-600/30'}`}>
-                                                            {task.enabled ? 'Pausar' : 'Activar'}
-                                                        </button>
-                                                        <button onClick={() => deleteTask(task.id)} className="text-xs px-3 py-1.5 bg-red-900/20 text-red-400 hover:bg-red-900/40 rounded transition-colors font-medium">Eliminar</button>
-                                                    </div>
-                                                </div>
-                                                <div className="text-sm text-gray-300 bg-gray-900/50 p-3 rounded whitespace-pre-wrap font-mono border border-gray-800">
-                                                    {task.prompt}
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
 
 // Helper: Call agent's API endpoint
-async function callAgentAPI(agent: AgentData, prompt: string, apiKey: string): Promise<string> {
-    const clientId = ClientModel.getInstance().clientId;
-    
-    const opts: any = {
-        model: agent.model,
-        apitype: agent.provider,
-        apitoken: apiKey,
-        baseurl: agent.endpoint,
-        timeoutms: 60000,
-    };
+async function callAgentAPI(agent: AgentData, prompt: string, apiKey: string, endpoint: string, aiConfigs?: any, onUpdate?: (chunk: string, fullMsg: string) => void): Promise<string> {
+    const chatID = "agent-" + agent.id + "-" + Date.now().toString();
 
-    const beMsg: any = {
-        clientid: clientId,
-        opts: opts,
-        prompt: [
-            { role: "system", content: agent.system_prompt },
-            { role: "user", content: prompt }
-        ],
+    const requestBody = {
+        chatid: chatID,
+        msg: {
+            messageid: "msg-" + Date.now(),
+            role: "user",
+            parts: [{ type: "text", text: prompt }]
+        },
+        endpoint: endpoint, 
+        apikey: apiKey,
+        model: agent.model,
+        provider: agent.provider,
+        systemprompt: agent.system_prompt,
+        tabid: ""
     };
 
     let fullMsg = "";
     try {
-        const aiGen = RpcApi.StreamGulinAiCommand(TabRpcClient, beMsg, { timeout: opts.timeoutms });
-        for await (const msg of aiGen) {
-            if (!msg) continue;
-            fullMsg += (msg.text ?? "");
+        const response = await fetch(`${getWebServerEndpoint()}/api/agent-chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Error HTTP: ${response.status}`);
         }
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                
+                const lines = chunk.split("\n");
+                for (const line of lines) {
+                    if (line.startsWith("data:")) {
+                        const dataStr = line.substring(5).trim();
+                        if (dataStr === "[DONE]") continue;
+                        try {
+                            const data = JSON.parse(dataStr);
+                            if (data.type === "text-delta" && typeof data.delta === "string") {
+                                fullMsg += data.delta;
+                                if (onUpdate) onUpdate(data.delta, fullMsg);
+                            } else if (data.type === "tool-input-start" && data.tool_name) {
+                                const msg = `\n\n[⚙️ Herramienta: ${data.tool_name}...]\n`;
+                                fullMsg += msg;
+                                if (onUpdate) onUpdate(msg, fullMsg);
+                            } else if (data.text) {
+                                fullMsg += data.text;
+                                if (onUpdate) onUpdate(data.text, fullMsg);
+                            } else if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) {
+                                const contentChunk = data.choices[0].delta.content;
+                                fullMsg += contentChunk;
+                                if (onUpdate) onUpdate(contentChunk, fullMsg);
+                            } else if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.tool_calls) {
+                                const toolCall = data.choices[0].delta.tool_calls[0];
+                                if (toolCall?.function?.name) {
+                                    const msg = `\n\n[⚙️ Herramienta: ${toolCall.function.name}...]\n`;
+                                    fullMsg += msg;
+                                    if (onUpdate) onUpdate(msg, fullMsg);
+                                }
+                            } else if (data.error) {
+                                fullMsg += "\n[Error del servidor]: " + data.error;
+                                if (onUpdate) onUpdate(data.error, fullMsg);
+                            } else if (typeof data === "string") {
+                                fullMsg += data;
+                                if (onUpdate) onUpdate(data, fullMsg);
+                            }
+                        } catch(e) {
+                            // En caso de que Vercel AI SDK devuelva formato 0:"..." (text)
+                            if (dataStr.startsWith("0:")) {
+                                try {
+                                    const textChunk = JSON.parse(dataStr.substring(2));
+                                    fullMsg += textChunk;
+                                    if (onUpdate) onUpdate(textChunk, fullMsg);
+                                } catch(e2) {}
+                            } else if (dataStr.startsWith("3:")) {
+                                // Vercel AI SDK format for errors
+                                try {
+                                    const errChunk = JSON.parse(dataStr.substring(2));
+                                    fullMsg += "\n[Error]: " + errChunk;
+                                    if (onUpdate) onUpdate(errChunk, fullMsg);
+                                } catch(e2) {}
+                            } else if (dataStr.startsWith("9:")) {
+                                const toolMsg = "\n[⚙️ Ejecutando herramienta...]";
+                                fullMsg += toolMsg;
+                                if (onUpdate) onUpdate(toolMsg, fullMsg);
+                            } else if (dataStr.startsWith("a:")) {
+                                const toolMsg = "\n[✅ Resultado obtenido]";
+                                fullMsg += toolMsg;
+                                if (onUpdate) onUpdate(toolMsg, fullMsg);
+                            } else if (dataStr.startsWith("e:")) {
+                                // Another common error prefix
+                                fullMsg += "\n[Error]: " + dataStr.substring(2);
+                                if (onUpdate) onUpdate(dataStr.substring(2), fullMsg);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (!fullMsg) {
-            throw new Error("Sin respuesta del agente");
+            fullMsg = "El agente completó la tarea silenciosamente usando herramientas.";
+            if (onUpdate) onUpdate(fullMsg, fullMsg);
         }
         return fullMsg;
     } catch (err: any) {
-        throw new Error(`Error del backend Gulin: ${err.message}`);
+        fullMsg += `\n[Error de Conexión]: ${err.message}`;
+        throw new Error(`Error conectando al backend: ${err.message}`);
+    } finally {
+        try {
+            fetch(`${getWebServerEndpoint()}/api/agent-log`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    agentid: agent.id,
+                    agentname: agent.label || agent.name || "Agent",
+                    log: `--- [Prompt] ---\n${prompt}\n\n--- [Respuesta] ---\n${fullMsg}\n`
+                })
+            }).catch(e => console.error("Error guardando log", e));
+        } catch(e) {}
     }
 }

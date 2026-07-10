@@ -533,7 +533,7 @@ func ConvertAIMessageToAnthropicChatMessage(aiMsg uctypes.AIMessage) (*anthropic
 
 	return &anthropicChatMessage{
 		MessageId: aiMsg.MessageId,
-		Role:      "user",
+		Role:      aiMsg.Role,
 		Content:   contentBlocks,
 	}, nil
 }
@@ -858,7 +858,16 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 	for i, nativeMsg := range aiChat.NativeMessages {
 		anthropicMsg, ok := nativeMsg.(*anthropicChatMessage)
 		if !ok {
-			return nil, fmt.Errorf("message %d: expected *anthropicChatMessage, got %T", i, nativeMsg)
+			genericMsg := uctypes.ConvertToGenericAIMessage(nativeMsg)
+			if genericMsg != nil {
+				uiMessages = append(uiMessages, uctypes.UIMessage{
+					ID:    genericMsg.MessageId,
+					Role:  genericMsg.Role,
+					Parts: []uctypes.UIMessagePart{{Type: "text", Text: genericMsg.GetContent()}},
+				})
+				continue
+			}
+			return nil, fmt.Errorf("message %d: expected *anthropicChatMessage or *uctypes.AIMessage, got %T", i, nativeMsg)
 		}
 
 		uiMsg := anthropicMsg.ConvertToUIMessage()

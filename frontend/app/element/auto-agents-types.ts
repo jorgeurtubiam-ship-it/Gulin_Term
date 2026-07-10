@@ -36,4 +36,5 @@ export interface AgentChatMessage {
     agent_id?: string;
     text: string;
     timestamp: string;
+    is_group?: boolean;
 }

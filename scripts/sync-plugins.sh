@@ -13,7 +13,7 @@ NC='\033[0m'
 UNAME_S="$(uname -s)"
 case "$UNAME_S" in
     Darwin)
-        APP_PLUGINS_DIR="$HOME/Library/Application Support/gulin/plugins"
+        APP_PLUGINS_DIR="$HOME/Gulin_Workspace/plugins"
         ;;
     Linux)
         APP_PLUGINS_DIR="$HOME/.config/gulin/plugins"

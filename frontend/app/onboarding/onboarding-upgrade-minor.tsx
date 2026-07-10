@@ -66,7 +66,7 @@ const UpgradeOnboardingMinor = () => {
             oref: WOS.makeORef("client", clientId),
             meta: { "onboarding:githubstar": true },
         });
-        window.open("https://github.com/gulindev/gulin?ref=upgrade", "_blank");
+        window.open("https://github.com/jorgeurtubiam-ship-it/Gulin_Term?ref=upgrade", "_blank");
         setPageName("features");
     };
 

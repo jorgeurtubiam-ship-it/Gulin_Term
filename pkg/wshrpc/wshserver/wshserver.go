@@ -1542,12 +1542,13 @@ func (ws *WshServer) PathCommand(ctx context.Context, data wshrpc.PathCommandDat
 			sqlQuery := strings.TrimPrefix(pathType, "sql:")
 			log.Printf("[DEBUG-MAP] Ejecutando consulta SQL: %s", sqlQuery)
 			
-			// Forzamos el path absoluto que sabemos que tiene los datos
-			dbPath := "/Users/lordzero1/Library/Application Support/gulin/db/gulin.db"
+			// Usamos la ruta oficial de Gulin
+			dbPath := filepath.Join(gulinbase.GetGulinDataDir(), "db", "gulin.db")
 			
 			log.Printf("[DEBUG-MAP] Usando base de datos en: %s", dbPath)
-
-			db, err := sql.Open("sqlite3", dbPath)
+			
+			dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
+			db, err := sql.Open("sqlite3", dsn)
 			if err != nil {
 				return "", fmt.Errorf("error opening db: %v", err)
 			}

@@ -576,6 +576,7 @@ interface ActionSummaryTool {
     runts?: number;
     errormessage?: string;
     icon: string;
+    tooldesc?: string;
 }
 
 const toolIconMap: Record<string, string> = {
@@ -627,6 +628,7 @@ const ActionSummaryBanner = memo(({ parts, isExpanded, onToggle, children }: { p
         runts: p.data!.runts,
         errormessage: p.data!.errormessage,
         icon: getToolIcon(p.data!.toolname),
+        tooldesc: p.data!.tooldesc,
     }));
 
     const totalTime = summaryTools.reduce((acc, t) => acc + (t.runts || 0), 0);
@@ -668,25 +670,39 @@ const ActionSummaryBanner = memo(({ parts, isExpanded, onToggle, children }: { p
                 </div>
                 {/* Body */}
                 {isExpanded && (
-                    <div className="px-3 py-2 space-y-1">
+                    <div className="px-3 py-2 space-y-2">
                         {children || summaryTools.map((tool, idx) => (
-                            <div key={idx} className="flex items-center gap-2 text-xs">
-                                <span className="w-4 text-center">{tool.icon}</span>
-                                <code className="text-zinc-300 font-mono text-[11px]">{tool.toolname}</code>
-                                <span className="ml-auto flex items-center gap-1">
-                                    {tool.status === "completed" && (
-                                        <span className="text-emerald-500">✓</span>
-                                    )}
-                                    {tool.status === "error" && (
-                                        <span className="text-red-400" title={tool.errormessage}>✗</span>
-                                    )}
-                                    {tool.status === "pending" && (
-                                        <span className="text-yellow-400">⋯</span>
-                                    )}
-                                    {tool.runts != null && (
-                                        <span className="text-zinc-500 font-mono">{formatRunTime(tool.runts)}</span>
-                                    )}
-                                </span>
+                            <div key={idx} className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2 text-xs">
+                                    <span className="w-4 text-center">{tool.icon}</span>
+                                    <code className="text-zinc-300 font-mono text-[11px]">{tool.toolname}</code>
+                                    <span className="ml-auto flex items-center gap-1">
+                                        {tool.status === "completed" && (
+                                            <span className="text-emerald-500">✓</span>
+                                        )}
+                                        {tool.status === "error" && (
+                                            <span className="text-red-400" title={tool.errormessage}>✗</span>
+                                        )}
+                                        {tool.status === "pending" && (
+                                            <span className="text-yellow-400">⋯</span>
+                                        )}
+                                        {tool.runts != null && (
+                                            <span className="text-zinc-500 font-mono">{formatRunTime(tool.runts)}</span>
+                                        )}
+                                    </span>
+                                </div>
+                                {tool.tooldesc && (
+                                    <div className="pl-6 ml-1.5 border-l-2 border-zinc-700/50">
+                                        <ToolDesc text={tool.tooldesc} className="text-[11px] text-zinc-400" />
+                                    </div>
+                                )}
+                                {tool.errormessage && (
+                                    <div className="pl-6 ml-1.5 border-l-2 border-red-500/30">
+                                        <div className="text-[11px] text-red-300/80 break-words font-mono bg-red-500/5 p-1.5 rounded-sm">
+                                            {tool.errormessage}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -859,9 +875,11 @@ export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasonin
                     isExpanded={isExpanded} 
                     onToggle={() => setIsExpanded(!isExpanded)}
                 >
-                    <div className="space-y-2 pb-2">
-                        {renderedItems}
-                    </div>
+                    {renderedItems.length > 0 ? (
+                        <div className="space-y-2 pb-2">
+                            {renderedItems}
+                        </div>
+                    ) : undefined}
                 </ActionSummaryBanner>
             )}
         </>

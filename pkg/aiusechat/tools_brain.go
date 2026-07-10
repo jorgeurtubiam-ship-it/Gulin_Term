@@ -69,7 +69,12 @@ func GetBrainRegisterNodeToolDefinition() uctypes.ToolDefinition {
 				}
 			}
 
-			db, err := gulinapp.OpenBrainDBInternal() // Need to export this or use shared logic
+			// Ensure schema is created
+			if err := gulinapp.InitBrainDB(); err != nil {
+				return nil, fmt.Errorf("failed to init brain db: %v", err)
+			}
+
+			db, err := gulinapp.OpenBrainDBInternal()
 			if err != nil {
 				return nil, err
 			}
@@ -133,6 +138,10 @@ func GetBrainConnectNodesToolDefinition() uctypes.ToolDefinition {
 			}
 			inputBytes, _ := json.Marshal(input)
 			json.Unmarshal(inputBytes, &parsed)
+
+			if err := gulinapp.InitBrainDB(); err != nil {
+				return nil, fmt.Errorf("failed to init brain db: %v", err)
+			}
 
 			db, err := gulinapp.OpenBrainDBInternal()
 			if err != nil {

@@ -27,6 +27,7 @@ type Chunk struct {
 // VectorDB holds all the chunks in memory for fast Cosine Similarity
 type VectorDB struct {
 	mu     sync.RWMutex
+	DBPath string  `json:"-"`
 	Chunks []Chunk `json:"chunks"`
 }
 
@@ -38,24 +39,45 @@ type SearchResult struct {
 }
 
 var (
-	globalVectorDB *VectorDB
-	dbOnce         sync.Once
+	loadedDBs = make(map[string]*VectorDB)
+	dbMapOnce sync.RWMutex
 )
 
-// GetVectorDB returns the singleton instance of the VectorDB
-func GetVectorDB() *VectorDB {
-	dbOnce.Do(func() {
-		globalVectorDB = &VectorDB{
-			Chunks: make([]Chunk, 0),
+func IsWorkspace(dir string) bool {
+	markers := []string{".git", "package.json", ".gulin", "go.mod"}
+	for _, m := range markers {
+		if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
+			return true
 		}
-		globalVectorDB.LoadFromDisk()
-	})
-	return globalVectorDB
+	}
+	return false
 }
 
-func GetDBPath() string {
+func GetGlobalDBPath() string {
 	configDir := gulinbase.GetGulinConfigDir()
-	return filepath.Join(configDir, EmbeddingFileName)
+	return filepath.Join(configDir, "global_embeddings.json")
+}
+
+func GetWorkspaceDBPath(dir string) string {
+	return filepath.Join(dir, ".gulin", "workspace_embeddings.json")
+}
+
+// GetVectorDB returns the instance of the VectorDB for a given path
+func GetVectorDB(path string) *VectorDB {
+	dbMapOnce.Lock()
+	defer dbMapOnce.Unlock()
+
+	if db, ok := loadedDBs[path]; ok {
+		return db
+	}
+
+	db := &VectorDB{
+		DBPath: path,
+		Chunks: make([]Chunk, 0),
+	}
+	db.LoadFromDisk()
+	loadedDBs[path] = db
+	return db
 }
 
 // LoadFromDisk loads the embeddings JSON file into memory
@@ -63,8 +85,7 @@ func (db *VectorDB) LoadFromDisk() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	dbPath := GetDBPath()
-	data, err := os.ReadFile(dbPath)
+	data, err := os.ReadFile(db.DBPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // DB does not exist yet
@@ -83,13 +104,16 @@ func (db *VectorDB) SaveToDisk() error {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
-	dbPath := GetDBPath()
+	if err := os.MkdirAll(filepath.Dir(db.DBPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for vector db: %w", err)
+	}
+
 	data, err := json.MarshalIndent(db, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to encode vector db: %w", err)
 	}
 
-	if err := os.WriteFile(dbPath, data, 0644); err != nil {
+	if err := os.WriteFile(db.DBPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write vector db to disk: %w", err)
 	}
 	return nil

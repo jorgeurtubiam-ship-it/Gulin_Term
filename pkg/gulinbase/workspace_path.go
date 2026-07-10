@@ -10,7 +10,12 @@ import (
 // GetWorkspacePath returns the appropriate path for GuLiN project data.
 // It prioritizes a workspace setting if available, otherwise defaults to local.
 func GetWorkspacePath(currentDir string) string {
-	// TODO: Implementar lógica de búsqueda de configuración global/workspace
-	// Si no hay configuración de workspace, fallback al comportamiento actual.
-	return filepath.Join(currentDir, ".gulin")
+	// Ya no forzamos ".gulin". Devolvemos el directorio de configuración del sistema (usualmente Gulin_Workspace)
+	// o si currentDir está provisto, un path relativo seguro.
+	// Por defecto, apuntamos al root del GulinDataDir si no hay un path superior configurado.
+	dataDir := GetGulinDataDir()
+	if dataDir != "" {
+		return filepath.Dir(dataDir) // Esto resolverá a ~/Gulin_Workspace
+	}
+	return filepath.Join(currentDir, "Gulin_Workspace")
 }

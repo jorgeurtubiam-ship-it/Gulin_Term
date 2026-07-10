@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
@@ -21,8 +23,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
-	"github.com/gulindev/gulin/pkg/secretstore"
+	"github.com/gulindev/gulin/pkg/gulinbase"
 	"github.com/gulindev/gulin/pkg/gulinobj"
+	"github.com/gulindev/gulin/pkg/secretstore"
 	"github.com/gulindev/gulin/pkg/wshrpc"
 	"github.com/gulindev/gulin/pkg/wshrpc/wshclient"
 	"github.com/gulindev/gulin/pkg/wstore"
@@ -85,17 +88,85 @@ func openSQLDB(dbType, dsn string) (*sql.DB, error) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func loadDBConnections() (map[string]DBRegisterInput, error) {
-	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
 	connections := make(map[string]DBRegisterInput)
-	if exists && val != "" {
-		json.Unmarshal([]byte(val), &connections)
+
+	// Read metadata from JSON
+	configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "db-connections.json")
+	fileData, err := os.ReadFile(configPath)
+	if err == nil {
+		var raw map[string]map[string]interface{}
+		if err := json.Unmarshal(fileData, &raw); err == nil {
+			for k, v := range raw {
+				typeStr, _ := v["type"].(string)
+				connections[k] = DBRegisterInput{
+					Name: k,
+					Type: typeStr,
+				}
+			}
+		}
 	}
+
+	// Read secure URLs from secretstore
+	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
+	if exists && val != "" {
+		secureConns := make(map[string]string) // Name -> URL
+		json.Unmarshal([]byte(val), &secureConns)
+		for name, secureURL := range secureConns {
+			// If it exists in JSON, inject the URL
+			if conn, ok := connections[name]; ok {
+				conn.URL = secureURL
+				connections[name] = conn
+			}
+		}
+	}
+
 	return connections, nil
 }
 
 func saveDBConnections(connections map[string]DBRegisterInput) error {
-	newVal, _ := json.Marshal(connections)
-	return secretstore.SetSecret(DBConnectionsSecretKey, string(newVal))
+	configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "db-connections.json")
+	fileData, err := os.ReadFile(configPath)
+	
+	// Prepare metadata for JSON
+	var raw map[string]map[string]interface{}
+	if err == nil {
+		json.Unmarshal(fileData, &raw)
+	}
+	if raw == nil {
+		raw = make(map[string]map[string]interface{})
+	}
+
+	// Prepare secure data for SecretStore
+	secureConns := make(map[string]string)
+	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
+	if exists && val != "" {
+		json.Unmarshal([]byte(val), &secureConns)
+	}
+
+	for k, v := range connections {
+		// Update Metadata in JSON (Never save URL/DSN here)
+		if raw[k] == nil {
+			raw[k] = make(map[string]interface{})
+		}
+		raw[k]["type"] = v.Type
+		raw[k]["status"] = "registered"
+		
+		// Remove leaked passwords if they existed
+		delete(raw[k], "dsn")
+		delete(raw[k], "url")
+		delete(raw[k], "password")
+
+		// Save securely
+		secureConns[k] = v.URL
+	}
+
+	// Save JSON file
+	newVal, _ := json.MarshalIndent(raw, "", "  ")
+	os.WriteFile(configPath, newVal, 0644)
+
+	// Save SecretStore
+	secureVal, _ := json.Marshal(secureConns)
+	return secretstore.SetSecret(DBConnectionsSecretKey, string(secureVal))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

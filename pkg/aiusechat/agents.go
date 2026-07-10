@@ -21,41 +21,41 @@ const (
 )
 
 type AgentExpert struct {
-	ID           AgentExpertType
-	Name         string
-	SystemPrompt string
-	Tools        []string // Nombres de las herramientas que este experto puede usar
-	DefaultModel string   // Modelo preferido para este experto
+	ID               AgentExpertType
+	Name             string
+	SystemPromptFunc func() string
+	Tools            []string // Nombres de las herramientas que este experto puede usar
+	DefaultModel     string   // Modelo preferido para este experto
 }
 
 var Experts = map[AgentExpertType]AgentExpert{
 	Expert_DB: {
-		ID:           Expert_DB,
-		Name:         "Experto en Bases de Datos",
-		SystemPrompt: SystemPrompt_DBExpert,
-		Tools:        []string{"db_query", "db_register_connection", "db_list_connections", "apimanager_list", "apimanager_call", "apimanager_register", "apimanager_delete", "brain_register_node", "brain_connect_nodes"},
-		DefaultModel: "gemini-3.1-flash-lite",
+		ID:               Expert_DB,
+		Name:             "Experto en Bases de Datos",
+		SystemPromptFunc: GetSystemPrompt_DBExpert,
+		Tools:            []string{"db_query", "db_register_connection", "db_list_connections", "apimanager_list", "apimanager_call", "apimanager_register", "apimanager_delete", "brain_register_node", "brain_connect_nodes"},
+		DefaultModel:     "gemini-3.1-flash-lite",
 	},
 	Expert_File: {
-		ID:           Expert_File,
-		Name:         "Especialista en Archivos",
-		SystemPrompt: SystemPrompt_FileExpert,
-		Tools:        []string{"read_text_file", "write_text_file", "edit_text_file", "delete_text_file", "read_dir", "brain_register_node", "brain_connect_nodes"},
-		DefaultModel: "gemini-3.1-flash-lite",
+		ID:               Expert_File,
+		Name:             "Especialista en Archivos",
+		SystemPromptFunc: GetSystemPrompt_FileExpert,
+		Tools:            []string{"read_text_file", "write_text_file", "edit_text_file", "delete_text_file", "read_dir", "brain_register_node", "brain_connect_nodes"},
+		DefaultModel:     "gemini-3.1-flash-lite",
 	},
 	Expert_Web: {
-		ID:           Expert_Web,
-		Name:         "Investigador Web",
-		SystemPrompt: SystemPrompt_WebExpert,
-		Tools:        []string{"web_navigate", "web_read_page", "web_click", "web_type", "brain_register_node", "brain_connect_nodes"},
-		DefaultModel: "gemini-3.1-flash-lite",
+		ID:               Expert_Web,
+		Name:             "Investigador Web",
+		SystemPromptFunc: GetSystemPrompt_WebExpert,
+		Tools:            []string{"web_navigate", "web_read_page", "web_click", "web_type", "brain_register_node", "brain_connect_nodes"},
+		DefaultModel:     "gemini-3.1-flash-lite",
 	},
 	Expert_Command: {
-		ID:           Expert_Command,
-		Name:         "Administrador de Sistemas",
-		SystemPrompt: SystemPrompt_CommandExpert,
-		Tools:        []string{"term_run_command", "term_command_output", "term_get_scrollback", "term_search", "apimanager_list", "apimanager_call", "apimanager_register", "apimanager_delete", "brain_register_node", "brain_connect_nodes"},
-		DefaultModel: "gemini-3.1-flash-lite", // Los comandos iniciales ahora son de Nivel 1 (Ahorro)
+		ID:               Expert_Command,
+		Name:             "Administrador de Sistemas",
+		SystemPromptFunc: GetSystemPrompt_CommandExpert,
+		Tools:            []string{"term_run_command", "term_command_output", "term_get_scrollback", "term_search", "apimanager_list", "apimanager_call", "apimanager_register", "apimanager_delete", "brain_register_node", "brain_connect_nodes"},
+		DefaultModel:     "gemini-3.1-flash-lite", // Los comandos iniciales ahora son de Nivel 1 (Ahorro)
 	},
 }
 

@@ -5,7 +5,6 @@ package aiusechat
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -23,7 +22,9 @@ const EndpointEmbeddingsAPI = "/api/embeddings"
 type GulinEmbeddings map[string][]float32
 
 func GetGulinMemoryDir() string {
-	return filepath.Join(gulinbase.GetGulinConfigDir(), GulinMemoryDirName)
+	dataDir := gulinbase.GetGulinDataDir()
+	workspaceDir := filepath.Dir(dataDir)
+	return filepath.Join(workspaceDir, "memoria")
 }
 
 func EnsureGulinMemoryDir() error {
@@ -32,25 +33,49 @@ func EnsureGulinMemoryDir() error {
 }
 
 func UpdateGulinMemoryFile(filename string, content string) error {
-	if err := EnsureGulinMemoryDir(); err != nil {
-		return err
+	dataDir := gulinbase.GetGulinDataDir()
+	workspaceDir := filepath.Dir(dataDir)
+	
+	// Si viene con path relativo, lo guardamos ahí, sino por defecto a memoria/
+	var absPath string
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		absPath = filepath.Join(workspaceDir, filepath.FromSlash(filename))
+		// Ensure parent directory exists
+		os.MkdirAll(filepath.Dir(absPath), 0700)
+	} else {
+		if err := EnsureGulinMemoryDir(); err != nil {
+			return err
+		}
+		filename = filepath.Base(filename)
+		if !strings.HasSuffix(filename, ".md") {
+			filename += ".md"
+		}
+		absPath = filepath.Join(GetGulinMemoryDir(), filename)
 	}
-	// Sanitize filename to prevent directory traversal
-	filename = filepath.Base(filename)
-	if !strings.HasSuffix(filename, ".md") {
-		filename += ".md"
-	}
-	path := filepath.Join(GetGulinMemoryDir(), filename)
-	return os.WriteFile(path, []byte(content), 0600)
+
+	return os.WriteFile(absPath, []byte(content), 0600)
 }
 
 func ReadGulinMemoryFile(filename string) (string, error) {
-	filename = filepath.Base(filename)
-	if !strings.HasSuffix(filename, ".md") {
-		filename += ".md"
+	dataDir := gulinbase.GetGulinDataDir()
+	workspaceDir := filepath.Dir(dataDir)
+
+	var absPath string
+	if filepath.IsAbs(filename) {
+		absPath = filename
+	} else if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		// Es un path relativo al workspace
+		absPath = filepath.Join(workspaceDir, filepath.FromSlash(filename))
+	} else {
+		// Compatibilidad hacia atrás (solo nombre base)
+		filename = filepath.Base(filename)
+		if !strings.HasSuffix(filename, ".md") {
+			filename += ".md"
+		}
+		absPath = filepath.Join(GetGulinMemoryDir(), filename)
 	}
-	path := filepath.Join(GetGulinMemoryDir(), filename)
-	content, err := os.ReadFile(path)
+
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return "", err
 	}
@@ -61,16 +86,36 @@ func ListGulinMemoryFiles() ([]string, error) {
 	if err := EnsureGulinMemoryDir(); err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(GetGulinMemoryDir())
-	if err != nil {
-		return nil, err
+
+	dataDir := gulinbase.GetGulinDataDir()
+	workspaceDir := filepath.Dir(dataDir)
+
+	// Carpetas clave a indexar para el RAG universal
+	targetDirs := []string{
+		filepath.Join(workspaceDir, "memoria"),
+		filepath.Join(workspaceDir, "learned"),
+		filepath.Join(workspaceDir, "skills"),
+		filepath.Join(workspaceDir, ".agents"),
 	}
+
 	var files []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
-			files = append(files, entry.Name())
-		}
+
+	for _, dir := range targetDirs {
+		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // ignorar directorios inaccesibles
+			}
+			if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+				relPath, err := filepath.Rel(workspaceDir, path)
+				if err == nil {
+					// Guardar path relativo y universal para los keys JSON
+					files = append(files, filepath.ToSlash(relPath))
+				}
+			}
+			return nil
+		})
 	}
+
 	return files, nil
 }
 
@@ -176,85 +221,68 @@ func CosineSimilarity(a, b []float32) float32 {
 	return float32(dotProduct / (math.Sqrt(normA) * math.Sqrt(normB)))
 }
 
-func LoadEmbeddings() GulinEmbeddings {
-	path := filepath.Join(GetGulinMemoryDir(), EmbeddingsFileName)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return make(GulinEmbeddings)
-	}
-	var embs GulinEmbeddings
-	json.Unmarshal(data, &embs)
-	return embs
-}
-
-func SaveEmbeddings(embs GulinEmbeddings) error {
-	path := filepath.Join(GetGulinMemoryDir(), EmbeddingsFileName)
-	data, _ := json.MarshalIndent(embs, "", "  ")
-	return os.WriteFile(path, data, 0600)
-}
-
 func IndexMemoryFiles() error {
 	files, err := ListGulinMemoryFiles()
 	if err != nil {
 		return err
 	}
-	embs := LoadEmbeddings()
-	updated := false
+	
+	db, err := GetGlobalVectorDB()
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
 
 	for _, file := range files {
-		if _, ok := embs[file]; !ok {
+		absPath := ""
+		if filepath.IsAbs(file) {
+			absPath = file
+		} else {
+			absPath = filepath.Join(filepath.Dir(gulinbase.GetGulinDataDir()), filepath.FromSlash(file))
+		}
+
+		info, err := os.Stat(absPath)
+		if err != nil {
+			continue
+		}
+
+		lastUpdated, _ := GetFileUpdatedAt(ctx, db, file)
+		if info.ModTime().Unix() > lastUpdated {
 			content, err := ReadGulinMemoryFile(file)
 			if err == nil {
-				embedding, err := GetEmbeddings(content)
-				if err == nil {
-					embs[file] = embedding
-					updated = true
-				}
+				InsertFileChunks(ctx, db, file, content)
 			}
 		}
 	}
 
-	if updated {
-		return SaveEmbeddings(embs)
-	}
 	return nil
 }
 
 func SearchGulinMemory(query string) ([]string, error) {
-	queryEmb, err := GetEmbeddings(query)
+	// Ensure everything is indexed
+	IndexMemoryFiles()
+
+	db, err := GetGlobalVectorDB()
 	if err != nil {
 		return nil, err
 	}
 
-	// Ensure everything is indexed
-	IndexMemoryFiles()
-
-	embs := LoadEmbeddings()
-	type result struct {
-		file  string
-		score float32
-	}
-	var results []result
-
-	for file, emb := range embs {
-		score := CosineSimilarity(queryEmb, emb)
-		if score > 0.6 { // Umbral de similitud
-			results = append(results, result{file, score})
-		}
-	}
-
-	// Sort by score
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].score > results[i].score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
+	results, err := SearchSemantically(context.Background(), db, query, 3)
+	if err != nil {
+		return nil, err
 	}
 
 	var topFiles []string
-	for i := 0; i < len(results) && i < 3; i++ {
-		topFiles = append(topFiles, results[i].file)
+	seen := make(map[string]bool)
+	for _, res := range results {
+		// Strip chunk suffix (e.g. #0, #1)
+		baseFile := strings.Split(res.FilePath, "#")[0]
+		if !seen[baseFile] {
+			topFiles = append(topFiles, baseFile)
+			seen[baseFile] = true
+		}
 	}
+	
 	return topFiles, nil
 }

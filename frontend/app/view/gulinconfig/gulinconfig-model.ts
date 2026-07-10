@@ -129,7 +129,6 @@ const configFiles: ConfigFile[] = [
         language: "json",
         description: "Rutas cross-platform para instalación: app_dir, data, config, plugins, db, cli. Ajusta según SO",
         hasJsonView: true,
-        basePath: "/Users/lordzero1/IA_LoRdZeRo/Gulin_Agent/waveterm",
     },
     {
         name: "Gulin IA Modes",

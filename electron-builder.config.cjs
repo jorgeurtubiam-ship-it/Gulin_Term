@@ -13,6 +13,10 @@ const config = {
     appId: pkg.build.appId,
     productName: pkg.productName,
     executableName: pkg.productName,
+    publish: {
+        provider: "generic",
+        url: "https://www.ecogulin.cl/downloads/"
+    },
     directories: {
         output: "make",
     },

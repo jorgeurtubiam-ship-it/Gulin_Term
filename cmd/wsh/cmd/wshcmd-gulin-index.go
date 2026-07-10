@@ -12,6 +12,8 @@ import (
 	"github.com/gulindev/gulin/pkg/aiusechat"
 )
 
+var globalIndex bool
+
 var gulinIndexCmd = &cobra.Command{
 	Use:   "index [directory]",
 	Short: "Generate Semantic Search Index for a project using local Ollama",
@@ -22,6 +24,7 @@ This powers Semantic RAG searches for Gulin IA.`,
 }
 
 func init() {
+	gulinIndexCmd.Flags().BoolVarP(&globalIndex, "global", "g", false, "Index to the global vector DB instead of the workspace")
 	gulinCmd.AddCommand(gulinIndexCmd)
 }
 
@@ -62,7 +65,14 @@ func gulinIndexRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	db := aiusechat.GetVectorDB()
+	var dbPath string
+	if globalIndex {
+		dbPath = aiusechat.GetGlobalDBPath()
+	} else {
+		dbPath = aiusechat.GetWorkspaceDBPath(targetDir)
+	}
+
+	db := aiusechat.GetVectorDB(dbPath)
 	fmt.Printf("Starting Gulin Workspace Indexing for: %s\n", targetDir)
 	fmt.Printf("Using Ollama Model: %s\n", aiusechat.GetOllamaEmbeddingModel())
 	fmt.Printf("--------------------------------------------------\n")
@@ -107,7 +117,7 @@ func gulinIndexRun(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("--------------------------------------------------\n")
 	fmt.Printf("Done! Successfully embedded %d files.\n", fileCount)
-	fmt.Printf("Database saved to: %s\n", aiusechat.GetDBPath())
+	fmt.Printf("Database saved to: %s\n", db.DBPath)
 
 	return nil
 }

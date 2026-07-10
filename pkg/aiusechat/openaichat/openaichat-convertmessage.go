@@ -457,7 +457,7 @@ func convertAIMessageTextOnly(aiMsg uctypes.AIMessage) (*StoredChatMessage, erro
 	return &StoredChatMessage{
 		MessageId: aiMsg.MessageId,
 		Message: ChatRequestMessage{
-			Role:    "user",
+			Role:    aiMsg.Role,
 			Content: textBuilder.String(),
 		},
 	}, nil
@@ -540,7 +540,7 @@ func convertAIMessageMultimodal(aiMsg uctypes.AIMessage) (*StoredChatMessage, er
 	return &StoredChatMessage{
 		MessageId: aiMsg.MessageId,
 		Message: ChatRequestMessage{
-			Role:         "user",
+			Role:         aiMsg.Role,
 			ContentParts: contentParts,
 		},
 	}, nil
@@ -699,7 +699,16 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 				Parts: fallbackParts,
 			})
 		} else {
-			return nil, fmt.Errorf("message %d: expected *StoredChatMessage or *uctypes.AIMessage, got %T", i, genMsg)
+			genericMsg := uctypes.ConvertToGenericAIMessage(genMsg)
+			if genericMsg != nil {
+				uiChat.Messages = append(uiChat.Messages, uctypes.UIMessage{
+					ID:    genericMsg.MessageId,
+					Role:  genericMsg.Role,
+					Parts: []uctypes.UIMessagePart{{Type: "text", Text: genericMsg.GetContent()}},
+				})
+			} else {
+				return nil, fmt.Errorf("message %d: expected *StoredChatMessage or *uctypes.AIMessage, got %T", i, genMsg)
+			}
 		}
 	}
 

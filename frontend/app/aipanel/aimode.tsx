@@ -112,9 +112,10 @@ interface AIModeDropdownProps {
     compatibilityMode?: boolean;
     tokenCount?: number;
     globalTokens?: number;
+    onResetGlobalTokens?: () => void;
 }
 
-export const AIModeDropdown = memo(({ compatibilityMode = false, tokenCount = 0, globalTokens = 0 }: AIModeDropdownProps) => {
+export const AIModeDropdown = memo(({ compatibilityMode = false, tokenCount = 0, globalTokens = 0, onResetGlobalTokens }: AIModeDropdownProps) => {
     const model = GulinAIModel.getInstance();
     const currentMode = useAtomValue(model.currentAIMode);
     const aiModeConfigs = useAtomValue(model.aiModeConfigs);
@@ -364,6 +365,19 @@ export const AIModeDropdown = memo(({ compatibilityMode = false, tokenCount = 0,
                                     <span className="text-[10px] text-gray-500">{opt.desc}</span>
                                 </button>
                             ))}
+                            <div className="border-t border-gray-700 my-1" />
+                            <div className="px-1 py-1">
+                                <button
+                                    onClick={() => {
+                                        if (onResetGlobalTokens) onResetGlobalTokens();
+                                        setIsTokenOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-gray-300 hover:bg-zinc-700 rounded transition-colors text-left"
+                                >
+                                    <i className="fa fa-trash text-[10px] text-red-400"></i>
+                                    <span className="text-xs">Resetear Histórico</span>
+                                </button>
+                            </div>
                         </div>
                     </>
                 )}

@@ -57,6 +57,22 @@ func (GoogleBackend) StreamCompletion(ctx context.Context, request wshrpc.GulinA
 		return nil
 	}
 
+	// Extraer el system prompt si existe
+	var systemContent string
+	for _, msg := range request.Prompt {
+		if msg.Role == "system" {
+			if systemContent != "" {
+				systemContent += "\n"
+			}
+			systemContent += msg.Content
+		}
+	}
+	if systemContent != "" {
+		model.SystemInstruction = &genai.Content{
+			Parts: []genai.Part{genai.Text(systemContent)},
+		}
+	}
+
 	cs := model.StartChat()
 	cs.History = extractHistory(request.Prompt)
 	iter := cs.SendMessageStream(ctx, extractPrompt(request.Prompt))

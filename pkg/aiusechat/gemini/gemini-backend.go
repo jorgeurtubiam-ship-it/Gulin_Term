@@ -366,13 +366,7 @@ func RunGeminiChatStep(
 		return nil, nil, nil, fmt.Errorf("chat not found: %s", chatOpts.ChatId)
 	}
 
-	// Validate that chatOpts.Config match the chat's stored configuration
-	if chat.APIType != chatOpts.Config.APIType {
-		return nil, nil, nil, fmt.Errorf("API type mismatch: chat has %s, chatOpts has %s", chat.APIType, chatOpts.Config.APIType)
-	}
-	if chat.Model != chatOpts.Config.Model {
-		return nil, nil, nil, fmt.Errorf("model mismatch: chat has %s, chatOpts has %s", chat.Model, chatOpts.Config.Model)
-	}
+	// API type and model mismatches are now allowed to support cross-provider continuity
 
 	// Context with timeout if provided
 	if chatOpts.Config.TimeoutMs > 0 {
@@ -394,7 +388,16 @@ func RunGeminiChatStep(
 					return nil, nil, nil, fmt.Errorf("failed to convert fallback AIMessage: %w", err)
 				}
 			} else {
-				return nil, nil, nil, fmt.Errorf("expected GeminiChatMessage or *uctypes.AIMessage, got %T", genMsg)
+				genericMsg := uctypes.ConvertToGenericAIMessage(genMsg)
+				if genericMsg != nil {
+					var err error
+					chatMsg, err = ConvertAIMessageToGeminiChatMessage(*genericMsg)
+					if err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to convert generic AIMessage: %w", err)
+					}
+				} else {
+					return nil, nil, nil, fmt.Errorf("expected GeminiChatMessage or *uctypes.AIMessage, got %T", genMsg)
+				}
 			}
 		}
 

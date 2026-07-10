@@ -72,27 +72,27 @@ func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapab
 	// Verificar si es un modo de Agente Experto específico
 	for expertID, expert := range Experts {
 		if strings.Contains(aiMode, string(expertID)) {
-			prompts = append(prompts, expert.SystemPrompt)
+			prompts = append(prompts, expert.SystemPromptFunc())
 			goto finalize
 		}
 	}
 
 	// Si es el Orquestador y NO es un modelo Lite, usamos el prompt de Comandante
 	if strings.Contains(aiMode, "@orchestrate") && !isLiteModel {
-		prompts = append(prompts, SystemPrompt_Orchestrator)
+		prompts = append(prompts, GetSystemPrompt_Orchestrator())
 	} else {
-		basePrompt := SystemPromptText_OpenAI
+		basePrompt := GetSystemPromptText_OpenAI()
 		if useNoToolsPrompt {
-			basePrompt = SystemPromptText_NoTools
+			basePrompt = GetSystemPromptText_NoTools()
 		}
 
 		prompts = append(prompts, basePrompt)
 
 		if !useNoToolsPrompt {
 			if strings.HasSuffix(aiMode, "@plan") {
-				prompts = append(prompts, SystemPrompt_Plan)
+				prompts = append(prompts, GetSystemPrompt_Plan())
 			} else if strings.HasSuffix(aiMode, "@act") {
-				prompts = append(prompts, SystemPrompt_Act)
+				prompts = append(prompts, GetSystemPrompt_Act())
 			}
 		}
 	}
@@ -102,12 +102,12 @@ finalize:
 	// Solo lo usaremos para modelos locales conocidos por ser difíciles.
 	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
 	if needsStrictToolAddOn && !useNoToolsPrompt {
-		prompts = append(prompts, SystemPromptText_StrictToolAddOn)
+		prompts = append(prompts, GetSystemPromptText_StrictToolAddOn())
 	}
 
 	// INYECCIÓN GLOBAL: Mapa de Infraestructura (Senior Grade)
 	if !isBuilder && widgetAccess {
-		prompts = append(prompts, SystemPrompt_NeuralBrain)
+		prompts = append(prompts, GetSystemPrompt_NeuralBrain())
 	}
 
 	return prompts
@@ -446,7 +446,33 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 	originalTools = append(originalTools, GetGulinBrainUpdateToolDefinition())
 	originalTools = append(originalTools, GetGulinBrainListToolDefinition())
 	originalTools = append(originalTools, GetGulinBrainSearchToolDefinition())
-	originalTools = append(originalTools, GetWebSearchToolDefinition(""))
+	originalTools = append(originalTools, GetWebSearchToolDefinition(chatOpts.TabId))
+	
+	// Inject DB Tools so agents like Lukas DBA can see connections
+	originalTools = append(originalTools, GetDBListConnectionsToolDefinition())
+	originalTools = append(originalTools, GetDBQueryToolDefinition(chatOpts.TabId))
+	
+	// Inject Terminal Tools
+	originalTools = append(originalTools, GetTermRunCommandToolDefinition(chatOpts.TabId))
+	originalTools = append(originalTools, GetTermRunAndWaitToolDefinition(chatOpts.TabId))
+	originalTools = append(originalTools, GetTermCommandOutputToolDefinition(chatOpts.TabId))
+	originalTools = append(originalTools, GetTermGetScrollbackToolDefinition(chatOpts.TabId))
+
+	// Inject Web Tools
+	originalTools = append(originalTools, GetWebReadPageToolDefinition(chatOpts.TabId))
+	originalTools = append(originalTools, GetWebNavigateToolDefinition(chatOpts.TabId))
+	originalTools = append(originalTools, GetWebClickToolDefinition(chatOpts.TabId))
+	originalTools = append(originalTools, GetWebTypeToolDefinition(chatOpts.TabId))
+	originalTools = append(originalTools, GetCaptureScreenshotToolDefinition(chatOpts.TabId))
+
+	// Inject RAG and Advanced File Tools
+	originalTools = append(originalTools, GetWorkspaceSearchToolDefinition())
+	originalTools = append(originalTools, GetDeleteTextFileToolDefinition())
+	
+	// Inject Plugins and Catalog Tools
+	originalTools = append(originalTools, GetPluginListToolDefinition())
+	originalTools = append(originalTools, GetListAvailableToolsToolDefinition())
+	
 	originalSystemPrompt := chatOpts.SystemPrompt
 	for {
 		// RESTORE original tools/prompt before each step so experts work correctly
@@ -481,12 +507,12 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 			expertID := AgentExpertType(expertIDStr)
 			if expert, ok := Experts[expertID]; ok {
 				// Aplicar Prompt del Experto
-				chatOpts.SystemPrompt = []string{expert.SystemPrompt}
+				chatOpts.SystemPrompt = []string{expert.SystemPromptFunc()}
 				// Añadir prompts de modo si existen
 				if strings.HasSuffix(chatOpts.Config.AIMode, "@plan") {
-					chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, SystemPrompt_Plan)
+					chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, GetSystemPrompt_Plan())
 				} else if strings.HasSuffix(chatOpts.Config.AIMode, "@act") {
-					chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, SystemPrompt_Act)
+					chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, GetSystemPrompt_Act())
 				}
 
 				// Filtrar herramientas del experto incorporando las de la pestaña (TabTools)
@@ -776,6 +802,24 @@ func GulinAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, m
 }
 
 func sendAIMetricsTelemetry(ctx context.Context, metrics *uctypes.AIMetrics) {
+	// Log tokens to database
+	if metrics.Usage.InputTokens > 0 || metrics.Usage.OutputTokens > 0 {
+		go func() {
+			err := chatstore.SaveTokenUsage(chatstore.TokenUsageLog{
+				Timestamp:    time.Now().UnixMilli(),
+				ChatID:       metrics.ChatId,
+				Provider:     metrics.AIProvider,
+				Model:        metrics.Usage.Model,
+				InputTokens:  metrics.Usage.InputTokens,
+				OutputTokens: metrics.Usage.OutputTokens,
+				TotalTokens:  metrics.Usage.InputTokens + metrics.Usage.OutputTokens,
+			})
+			if err != nil {
+				log.Printf("error saving token usage to DB: %v\n", err)
+			}
+		}()
+	}
+
 	event := telemetrydata.MakeTEvent("gulinai:post", telemetrydata.TEventProps{
 		GulinAIAPIType:              metrics.Usage.APIType,
 		GulinAIModel:                metrics.Usage.Model,
@@ -838,9 +882,18 @@ func GulinAIBrainListHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dataDir := gulinbase.GetGulinDataDir()
+	workspaceDir := filepath.Dir(dataDir)
+
 	summaries := make([]BrainSummary, 0)
 	for _, file := range files {
-		path := filepath.Join(GetGulinMemoryDir(), file)
+		parts := strings.Split(filepath.ToSlash(file), "/")
+		if parts[0] == "skills" && len(parts) > 2 && strings.ToLower(parts[len(parts)-1]) != "skill.md" {
+			// Skip supporting files inside skill directories
+			continue
+		}
+
+		path := filepath.Join(workspaceDir, filepath.FromSlash(file))
 		info, err := os.Stat(path)
 		if err != nil {
 			continue
@@ -854,8 +907,8 @@ func GulinAIBrainListHandler(w http.ResponseWriter, r *http.Request) {
 			snippet = snippet[:200]
 		}
 		title := strings.TrimSuffix(file, ".md")
-		title = strings.ReplaceAll(title, "_", " ")
-		title = strings.Title(title)
+		title = strings.TrimPrefix(title, "skills/") // We already filtered to skills/
+		// We pass the raw title so the frontend can build a tree.
 
 		summaries = append(summaries, BrainSummary{
 			Filename:   file,
@@ -914,10 +967,16 @@ func GulinAIBrainDeleteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "filename is required", http.StatusBadRequest)
 		return
 	}
-	// Sanitize filename
-	filename = filepath.Base(filename)
-	path := filepath.Join(GetGulinMemoryDir(), filename)
-	err := os.Remove(path)
+	var absPath string
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		dataDir := gulinbase.GetGulinDataDir()
+		workspaceDir := filepath.Dir(dataDir)
+		absPath = filepath.Join(workspaceDir, filepath.FromSlash(filename))
+	} else {
+		filename = filepath.Base(filename)
+		absPath = filepath.Join(GetGulinMemoryDir(), filename)
+	}
+	err := os.Remove(absPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to delete brain file: %v", err), http.StatusInternalServerError)
 		return
@@ -932,13 +991,11 @@ func GulinAIDBSchemaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
-	if !exists {
+	connections, err := loadDBConnections()
+	if err != nil || len(connections) == 0 {
 		http.Error(w, "no connections registered", http.StatusNotFound)
 		return
 	}
-	connections := make(map[string]DBRegisterInput)
-	json.Unmarshal([]byte(val), &connections)
 
 	connInfo, ok := connections[connName]
 	if !ok {
@@ -1100,13 +1157,11 @@ func GulinAIDBQueryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
-	if !exists {
+	connections, err := loadDBConnections()
+	if err != nil || len(connections) == 0 {
 		http.Error(w, "no connections registered", http.StatusNotFound)
 		return
 	}
-	connections := make(map[string]DBRegisterInput)
-	json.Unmarshal([]byte(val), &connections)
 
 	connInfo, ok := connections[connName]
 	if !ok {
@@ -1201,14 +1256,25 @@ func GulinAIDBQueryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GulinAIDBListHandler(w http.ResponseWriter, r *http.Request) {
-	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
-	if !exists {
+	connections := make(map[string]DBRegisterInput)
+
+	// Read ONLY from db-connections.json
+	configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "db-connections.json")
+	fileData, err := os.ReadFile(configPath)
+	if err == nil {
+		fileConns := make(map[string]DBRegisterInput)
+		if err := json.Unmarshal(fileData, &fileConns); err == nil {
+			for k, v := range fileConns {
+				connections[k] = v
+			}
+		}
+	}
+
+	if len(connections) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]any{})
 		return
 	}
-	connections := make(map[string]DBRegisterInput)
-	json.Unmarshal([]byte(val), &connections)
 
 	var result []DBConnectionInfo
 	for name, conn := range connections {
@@ -1358,6 +1424,7 @@ func GulinAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		TokenMode:            req.TokenMode,
 		BuilderId:            req.BuilderId,
 		BuilderAppId:         req.BuilderAppId,
+		TabId:                req.TabId,
 	}
 
 	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), chatOpts.WidgetAccess, chatOpts.Config.AIMode)
@@ -1782,4 +1849,175 @@ func runExpertSubChat(ctx context.Context, backend UseChatBackend, chatOpts ucty
 	sendAIMetricsTelemetry(ctx, metrics)
 
 	return resultText, nil
+}
+
+// AgentChatRequest represents the request body for posting a message from Auto Agents
+type AgentChatRequest struct {
+	ChatID       string            `json:"chatid"`
+	Msg          uctypes.AIMessage `json:"msg"`
+	Endpoint     string            `json:"endpoint"`
+	APIKey       string            `json:"apikey"`
+	Model        string            `json:"model"`
+	Provider     string            `json:"provider"`
+	SystemPrompt string            `json:"systemprompt"`
+	TabId        string            `json:"tabid,omitempty"`
+}
+
+type AgentLogRequest struct {
+	AgentID   string `json:"agentid"`
+	AgentName string `json:"agentname"`
+	Log       string `json:"log"`
+}
+
+func GulinAIAgentLogHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AgentLogRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.AgentName == "" {
+		req.AgentName = req.AgentID
+	}
+	if req.AgentName == "" {
+		req.AgentName = "unknown"
+	}
+
+	logsDir := gulinbase.GetGulinLogsDir()
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create logs dir: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	cleanName := strings.ReplaceAll(req.AgentName, " ", "_")
+	logPath := filepath.Join(logsDir, fmt.Sprintf("agent_%s.log", cleanName))
+	
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to open log file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	if _, err := f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, req.Log)); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to write to log file: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func GulinAIAgentChatHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AgentChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.ChatID == "" {
+		http.Error(w, "chatid is required", http.StatusBadRequest)
+		return
+	}
+
+	// If req.Provider is a config key, resolve it from the global config
+	/*
+	globalConf, err := wconfig.GetGlobalGulinAIConfig()
+	if err == nil && globalConf != nil && globalConf.Presets != nil {
+		if preset, ok := globalConf.Presets[req.Provider]; ok {
+			if req.APIKey == "" {
+				if preset.APIToken != "" {
+					req.APIKey = preset.APIToken
+				} else if preset.APITokenSecretName != "" {
+					secret, err := wconfig.GetGlobalSecret(preset.APITokenSecretName)
+					if err == nil {
+						req.APIKey = secret.SecretValue
+					}
+				}
+			}
+			if req.Endpoint == "" && preset.BaseUrl != "" {
+				req.Endpoint = preset.BaseUrl
+			}
+			if req.Model == "" && preset.Model != "" {
+				req.Model = preset.Model
+			}
+			if preset.Provider != "" && preset.Provider != "gulin" {
+				req.Provider = preset.Provider
+			}
+			if preset.BridgeProvider != "" {
+				req.Provider = preset.BridgeProvider
+			}
+		}
+	}
+	*/
+
+	apiType := req.Provider
+	switch req.Provider {
+	case "google", "gemini":
+		apiType = uctypes.APIType_GoogleGemini
+		if req.Endpoint == "https://generativelanguage.googleapis.com/v1beta/models/" {
+			req.Endpoint = ""
+		}
+	case "anthropic":
+		apiType = uctypes.APIType_AnthropicMessages
+	case "openai", "deepseek", "ollama", "groq", "nvidia":
+		apiType = uctypes.APIType_OpenAIChat
+	}
+
+	// Create custom AI Opts
+	aiOpts := &uctypes.AIOptsType{
+		Endpoint: req.Endpoint,
+		APIToken: req.APIKey,
+		Model:    req.Model,
+		Provider: req.Provider,
+		APIType:  apiType,
+	}
+
+	chatOpts := uctypes.GulinChatOpts{
+		ChatId:               req.ChatID,
+		ClientId:             wstore.GetClientId(),
+		Config:               *aiOpts,
+		WidgetAccess:         true,
+		AllowNativeWebSearch: true,
+		TabId:                req.TabId,
+	}
+
+	chatOpts.SystemPrompt = []string{req.SystemPrompt}
+
+	if req.TabId != "" {
+		tabState, tabTools, err := GenerateTabStateAndTools(r.Context(), req.TabId, true, &chatOpts)
+		if err == nil {
+			if tabState != "" {
+				chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, tabState)
+			}
+			chatOpts.Tools = append(chatOpts.Tools, tabTools...)
+		}
+	} else {
+		// Default tools if no TabId is provided
+		chatOpts.Tools = append(chatOpts.Tools,
+			GetReadTextFileToolDefinition(),
+			GetReadDirToolDefinition(),
+			GetWriteTextFileToolDefinition(),
+			GetEditTextFileToolDefinition(),
+		)
+	}
+
+	sseHandler := sse.MakeSSEHandlerCh(w, r.Context())
+	defer sseHandler.Close()
+
+	if err := GulinAIPostMessageWrap(r.Context(), sseHandler, &req.Msg, chatOpts); err != nil {
+		log.Printf("GulinAIPostMessageWrap failed: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to post message: %v", err), http.StatusInternalServerError)
+		return
+	}
 }

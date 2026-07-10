@@ -48,7 +48,7 @@ func GetStarterLayout() PortableLayout {
 		{IndexArr: []int{1, 1}, BlockDef: &gulinobj.BlockDef{
 			Meta: gulinobj.MetaMapType{
 				gulinobj.MetaKey_View: "web",
-				gulinobj.MetaKey_Url:  "https://github.com/gulindev/gulin",
+				gulinobj.MetaKey_Url:  "https://github.com/jorgeurtubiam-ship-it/Gulin_Term",
 			},
 		}},
 		{IndexArr: []int{1, 2}, BlockDef: &gulinobj.BlockDef{

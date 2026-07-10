@@ -15,17 +15,15 @@ interface SkillManagerProps {
 
 export const SkillManager = memo(({ model, onClose }: SkillManagerProps) => {
     const [availableSkills, setAvailableSkills] = useAtom(model.availableSkills);
-    const [editingSkill, setEditingSkill] = useState<string | null>(null);
+    const [editingSkill, setEditingSkill] = useState<{title: string, filename: string} | null>(null);
     const [skillContent, setSkillContent] = useState("");
     const [newSkillName, setNewSkillName] = useState("");
     const [isSaving, setIsSaving] = useState(false);
 
-    const loadSkillContent = async (name: string) => {
+    const loadSkillContent = async (filename: string) => {
         const baseUrl = getWebServerEndpoint();
-        // Sanitize for filename logic used in Go
-        const clean = name.toLowerCase().replace(/ /g, "_").replace(/[^a-z0-9_]+/g, "").trim();
         try {
-            const response = await fetch(`${baseUrl}/gulin/brain-read?filename=${clean}.md`);
+            const response = await fetch(`${baseUrl}/gulin/brain-read?filename=${filename}`);
             if (response.ok) {
                 const text = await response.text();
                 setSkillContent(text);
@@ -40,17 +38,20 @@ export const SkillManager = memo(({ model, onClose }: SkillManagerProps) => {
     const handleSave = async () => {
         const baseUrl = getWebServerEndpoint();
         setIsSaving(true);
-        const name = editingSkill || newSkillName;
-        const clean = name.toLowerCase().replace(/ /g, "_").replace(/[^a-z0-9_]+/g, "").trim();
+        const name = editingSkill ? editingSkill.title.replace("✨ ", "") : newSkillName;
+        let filename = editingSkill?.filename;
+        if (!filename) {
+            filename = "skills/" + name.toLowerCase().replace(/ /g, "_").replace(/[^a-z0-9_]+/g, "").trim() + ".md";
+        }
         
         try {
             await fetch(`${baseUrl}/gulin/brain-update`, {
                 method: "POST",
-                body: JSON.stringify({ filename: clean + ".md", content: skillContent }),
+                body: JSON.stringify({ filename: filename, content: skillContent }),
             });
             
             if (!editingSkill) {
-                setAvailableSkills([...availableSkills, "✨ " + name]);
+                setAvailableSkills([...availableSkills, {title: "✨ " + name, filename: filename}]);
             }
             setEditingSkill(null);
             setNewSkillName("");
@@ -62,13 +63,12 @@ export const SkillManager = memo(({ model, onClose }: SkillManagerProps) => {
         }
     };
 
-    const handleDelete = async (name: string) => {
+    const handleDelete = async (filename: string) => {
         const baseUrl = getWebServerEndpoint();
-        if (!confirm(`¿Estás seguro de borrar la skill "${name}"?`)) return;
-        const clean = name.toLowerCase().replace(/ /g, "_").replace(/[^a-z0-9_]+/g, "").trim();
+        if (!confirm(`¿Estás seguro de borrar esta skill?`)) return;
         try {
-            await fetch(`${baseUrl}/gulin/brain-delete?filename=${clean}.md`);
-            setAvailableSkills(availableSkills.filter(s => s !== name));
+            await fetch(`${baseUrl}/gulin/brain-delete?filename=${filename}`);
+            setAvailableSkills(availableSkills.filter(s => s.filename !== filename));
         } catch (e) {
             console.error("Error deleting skill", e);
         }
@@ -89,29 +89,76 @@ export const SkillManager = memo(({ model, onClose }: SkillManagerProps) => {
                                 + AÑADIR SKILL
                             </button>
                         </div>
-                        <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-auto">
-                            {availableSkills.map(skill => (
-                                <div key={skill} className="flex items-center justify-between bg-zinc-800/50 p-3 rounded-lg border border-gray-700/50 group">
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-lg">{skill.split(" ")[0]}</span>
-                                        <span className="text-sm font-medium">{skill.split(" ").slice(1).join(" ")}</span>
-                                    </div>
-                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button 
-                                            onClick={() => { setEditingSkill(skill); loadSkillContent(skill); }}
-                                            className="p-1.5 text-gray-400 hover:text-white transition-colors"
-                                        >
-                                            <i className="fa-solid fa-pen-to-square"></i>
-                                        </button>
-                                        <button 
-                                            onClick={() => handleDelete(skill)}
-                                            className="p-1.5 text-gray-400 hover:text-red-400 transition-colors"
-                                        >
-                                            <i className="fa-solid fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                        <div className="flex flex-col gap-1 max-h-[300px] overflow-auto pr-2 pb-2">
+                            {(() => {
+                                const root: any = { name: "root", children: [], isSkill: false };
+                                availableSkills.forEach(skill => {
+                                    const cleanTitle = skill.title.replace("✨ ", "");
+                                    const parts = cleanTitle.split("/"); 
+                                    let current = root;
+                                    for (let i = 0; i < parts.length - 1; i++) {
+                                        const part = parts[i];
+                                        let child = current.children.find((c: any) => c.name === part && !c.isSkill);
+                                        if (!child) {
+                                            child = { name: part, children: [], isSkill: false };
+                                            current.children.push(child);
+                                        }
+                                        current = child;
+                                    }
+                                    let finalName = parts[parts.length - 1];
+                                    if (finalName.toLowerCase() === "skill" && parts.length > 1) {
+                                        finalName = parts[parts.length - 2];
+                                    }
+                                    current.children.push({
+                                        name: finalName,
+                                        isSkill: true,
+                                        skill: skill
+                                    });
+                                });
+
+                                const renderNode = (node: any, level: number) => {
+                                    if (node.isSkill) {
+                                        let name = node.name.replace(/[-_]/g, " ");
+                                        name = name.replace(/\b\w/g, (c: string) => c.toUpperCase());
+                                        return (
+                                            <div key={node.skill.filename} className="flex items-center justify-between bg-zinc-800/50 p-2 rounded-lg border border-gray-700/50 group w-full" style={{ marginLeft: `${level * 16}px`, width: `calc(100% - ${level * 16}px)` }}>
+                                                <div className="flex items-center gap-3">
+                                                    <i className="fa-solid fa-star text-[10px] text-accent"></i>
+                                                    <span className="text-sm font-medium">{name}</span>
+                                                </div>
+                                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button 
+                                                        onClick={() => { setEditingSkill(node.skill); loadSkillContent(node.skill.filename); }}
+                                                        className="p-1.5 text-gray-400 hover:text-white transition-colors"
+                                                    >
+                                                        <i className="fa-solid fa-pen-to-square"></i>
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDelete(node.skill.filename)}
+                                                        className="p-1.5 text-gray-400 hover:text-red-400 transition-colors"
+                                                    >
+                                                        <i className="fa-solid fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div key={node.name} className="flex flex-col gap-1 w-full mt-2">
+                                            <div className="flex items-center gap-2 py-1 text-xs text-gray-400 font-medium" style={{ paddingLeft: `${level * 16}px` }}>
+                                                <i className="fa-solid fa-folder-open text-[10px]"></i>
+                                                <span className="capitalize">{node.name.replace(/[-_]/g, " ")}</span>
+                                            </div>
+                                            <div className="flex flex-col gap-1 border-l border-gray-700/50 ml-2">
+                                                {node.children.map((child: any, i: number) => renderNode(child, level + 1))}
+                                            </div>
+                                        </div>
+                                    );
+                                };
+
+                                return root.children.map((child: any, i: number) => renderNode(child, 0));
+                            })()}
                         </div>
                     </>
                 )}
@@ -120,7 +167,7 @@ export const SkillManager = memo(({ model, onClose }: SkillManagerProps) => {
                     <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2">
                         <input 
                             type="text" 
-                            value={editingSkill || newSkillName} 
+                            value={editingSkill ? editingSkill.title.replace("✨ ", "") : newSkillName} 
                             onChange={(e) => editingSkill ? null : setNewSkillName(e.target.value)}
                             disabled={!!editingSkill}
                             className="bg-black/40 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-accent/50"

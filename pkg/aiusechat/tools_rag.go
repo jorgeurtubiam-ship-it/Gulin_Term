@@ -3,6 +3,8 @@ package aiusechat
 import (
 	"context"
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
@@ -33,30 +35,47 @@ func workspaceSearchCallback(ctx context.Context, input any, toolUseData *uctype
 		return nil, err
 	}
 
-	db := GetVectorDB()
+	cwd, _ := os.Getwd()
+	var allResults []SearchResult
 
-	// Quick sanity check: if DB is empty, tell the user to index first.
-	db.mu.RLock()
-	chunkCount := len(db.Chunks)
-	db.mu.RUnlock()
-
-	if chunkCount == 0 {
-		return nil, fmt.Errorf("the workspace vector database is empty. tell the user to run 'wsh gulin index' in their terminal to scan their project first")
+	// 1. Search Local Workspace DB if we are in a workspace
+	if IsWorkspace(cwd) {
+		if dbWorkspace, err := GetWorkspaceVectorDB(cwd); err == nil {
+			res1, err := SearchSemantically(ctx, dbWorkspace, parsed.Query, 5)
+			if err == nil {
+				allResults = append(allResults, res1...)
+			}
+		}
 	}
 
-	// Search for top 5 relevant chunks
-	results, err := db.Search(ctx, parsed.Query, 5)
-	if err != nil {
-		return nil, fmt.Errorf("failed to perform semantic search: %w", err)
+	// 2. Search Global DB
+	if dbGlobal, err := GetGlobalVectorDB(); err == nil {
+		res2, err := SearchSemantically(ctx, dbGlobal, parsed.Query, 5)
+		if err == nil {
+			allResults = append(allResults, res2...)
+		}
 	}
 
-	if len(results) == 0 {
+	if len(allResults) == 0 {
+		return nil, fmt.Errorf("both vector databases are empty. tell the user to run 'wsh gulin index' first")
+	}
+
+	// 3. Merge and Sort
+	sort.Slice(allResults, func(i, j int) bool {
+		return allResults[i].Score > allResults[j].Score
+	})
+
+	if len(allResults) > 5 {
+		allResults = allResults[:5]
+	}
+
+	if len(allResults) == 0 {
 		return "No relevant code fragments found for this query.", nil
 	}
 
 	var output string
 	output += fmt.Sprintf("Semantic Search Results for: '%s'\n\n", parsed.Query)
-	for i, res := range results {
+	for i, res := range allResults {
 		output += fmt.Sprintf("--- Result %d (Score: %.2f) ---\n", i+1, res.Score)
 		output += fmt.Sprintf("File: %s\n", res.FilePath)
 		output += fmt.Sprintf("Content Fragment:\n```\n%s\n```\n\n", res.Content)

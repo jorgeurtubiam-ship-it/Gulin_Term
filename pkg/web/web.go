@@ -495,6 +495,8 @@ func RunWebServer(listener net.Listener) {
 
 	// Routes that should NOT have timeout handling (for streaming)
 	gr.HandleFunc("/api/post-chat-message", WebFnWrap(WebFnOpts{AllowCaching: false}, aiusechat.GulinAIPostMessageHandler))
+	gr.HandleFunc("/api/agent-chat", WebFnWrap(WebFnOpts{AllowCaching: false}, aiusechat.GulinAIAgentChatHandler))
+	gr.HandleFunc("/api/agent-log", WebFnWrap(WebFnOpts{AllowCaching: false}, aiusechat.GulinAIAgentLogHandler))
 
 	// Other routes without timeout
 	gr.PathPrefix(schemaPrefix).Handler(http.StripPrefix(schemaPrefix, schema.GetSchemaHandler()))

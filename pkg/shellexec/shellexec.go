@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -223,18 +224,18 @@ func StartWslShellProc(ctx context.Context, termSize gulinobj.TermSize, cmdStr s
 		if shellType == shellutil.ShellType_bash {
 			// add --rcfile
 			// cant set -l or -i with --rcfile
-			bashPath := fmt.Sprintf("~/.gulin/%s/.bashrc", shellutil.BashIntegrationDir)
+			bashPath := filepath.Join(gulinbase.GetGulinDataDir(), shellutil.BashIntegrationDir, ".bashrc")
 			shellOpts = append(shellOpts, "--rcfile", bashPath)
 		} else if shellType == shellutil.ShellType_fish {
 			if cmdOpts.Login {
 				shellOpts = append(shellOpts, "-l")
 			}
 			// source the gulin.fish file
-			gulinFishPath := fmt.Sprintf("~/.gulin/%s/gulin.fish", shellutil.FishIntegrationDir)
+			gulinFishPath := filepath.Join(gulinbase.GetGulinDataDir(), shellutil.FishIntegrationDir, "gulin.fish")
 			carg := fmt.Sprintf(`"source %s"`, gulinFishPath)
 			shellOpts = append(shellOpts, "-C", carg)
 		} else if shellType == shellutil.ShellType_pwsh {
-			pwshPath := fmt.Sprintf("~/.gulin/%s/gulinpwsh.ps1", shellutil.PwshIntegrationDir)
+			pwshPath := filepath.Join(gulinbase.GetGulinDataDir(), shellutil.PwshIntegrationDir, "gulinpwsh.ps1")
 			// powershell is weird about quoted path executables and requires an ampersand first
 			shellPath = "& " + shellPath
 			shellOpts = append(shellOpts, "-ExecutionPolicy", "Bypass", "-NoExit", "-File", pwshPath)
@@ -257,7 +258,7 @@ func StartWslShellProc(ctx context.Context, termSize gulinobj.TermSize, cmdStr s
 	conn.Infof(ctx, "WSL-NEWSESSION (StartWslShellProc)\n")
 
 	if shellType == shellutil.ShellType_zsh {
-		zshDir := fmt.Sprintf("~/.gulin/%s", shellutil.ZshIntegrationDir)
+		zshDir := filepath.Join(gulinbase.GetGulinDataDir(), shellutil.ZshIntegrationDir)
 		conn.Infof(ctx, "setting ZDOTDIR to %s\n", zshDir)
 		cmdCombined = fmt.Sprintf(`ZDOTDIR=%s %s`, zshDir, cmdCombined)
 	}
@@ -442,7 +443,7 @@ func StartRemoteShellProc(ctx context.Context, logCtx context.Context, termSize 
 	session.Stdout = remoteStdoutWrite
 	session.Stderr = remoteStdoutWrite
 	if shellType == shellutil.ShellType_zsh {
-		zshDir := fmt.Sprintf("~/.gulin/%s", shellutil.ZshIntegrationDir)
+		zshDir := filepath.Join(gulinbase.GetGulinDataDir(), shellutil.ZshIntegrationDir)
 		conn.Infof(logCtx, "setting ZDOTDIR to %s\n", zshDir)
 		cmdCombined = fmt.Sprintf(`ZDOTDIR=%s %s`, zshDir, cmdCombined)
 	}

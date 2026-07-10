@@ -266,7 +266,7 @@ tasks:
         vars:
             EXT: '{{if eq .GOOS "windows"}}.exe{{end}}'
         cmd:
-            cmd: CGO_ENABLED=1 GOOS={{.GOOS | default OS}} GOARCH={{.GOARCH}} {{.GO_ENV_VARS}} go build -tags "osusergo,sqlite_omit_load_extension" -ldflags "{{.GO_LDFLAGS}} -X main.BuildTime=$({{.DATE}} +'%Y%m%d%H%M') -X main.GulinVersion={{.VERSION}}" -o dist/bin/gulinsrv.{{if eq .GOARCH "amd64"}}x64{{else}}{{.GOARCH}}{{end}}{{.EXT}} cmd/server/main-server.go
+            cmd: CGO_CFLAGS="-I{{.ROOT_DIR}}/include -fno-sanitize=undefined" CGO_ENABLED=1 GOOS={{.GOOS | default OS}} GOARCH={{.GOARCH}} {{.GO_ENV_VARS}} go build -tags "osusergo,sqlite_omit_load_extension" -ldflags "{{.GO_LDFLAGS}} -X main.BuildTime=$({{.DATE}} +'%Y%m%d%H%M') -X main.GulinVersion={{.VERSION}}" -o dist/bin/gulinsrv.{{if eq .GOARCH "amd64"}}x64{{else}}{{.GOARCH}}{{end}}{{.EXT}} cmd/server/main-server.go
             for:
                 var: ARCHS
                 split: ","

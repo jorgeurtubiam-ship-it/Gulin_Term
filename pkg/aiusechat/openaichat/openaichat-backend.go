@@ -84,7 +84,16 @@ func RunChatStep(
 					return nil, nil, nil, fmt.Errorf("failed to convert fallback AIMessage: %w", err)
 				}
 			} else {
-				return nil, nil, nil, fmt.Errorf("expected StoredChatMessage or *uctypes.AIMessage, got %T", genMsg)
+				genericMsg := uctypes.ConvertToGenericAIMessage(genMsg)
+				if genericMsg != nil {
+					var err error
+					chatMsg, err = ConvertAIMessageToStoredChatMessage(*genericMsg)
+					if err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to convert generic AIMessage: %w", err)
+					}
+				} else {
+					return nil, nil, nil, fmt.Errorf("expected StoredChatMessage or *uctypes.AIMessage, got %T", genMsg)
+				}
 			}
 		}
 		messages = append(messages, *chatMsg.Message.clean())
@@ -321,6 +330,7 @@ func processChatStream(
 	var textBuilder strings.Builder
 	msgID := uuid.New().String()
 	textID := uuid.New().String()
+	var finalUsage *ChatUsage
 	var finishReason string
 	textStarted := false
 	var toolCallsInProgress []ToolCall
@@ -395,6 +405,10 @@ func processChatStream(
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			log.Printf("openaichat: failed to parse chunk: %v (raw data: %s)", err, data)
 			continue
+		}
+
+		if chunk.Usage != nil {
+			finalUsage = chunk.Usage
 		}
 
 		if len(chunk.Choices) == 0 {
@@ -540,6 +554,9 @@ func processChatStream(
 	assistantMsg.Message.Content = textBuilder.String()
 	if len(validToolCalls) > 0 {
 		assistantMsg.Message.ToolCalls = validToolCalls
+	}
+	if finalUsage != nil {
+		assistantMsg.Usage = finalUsage
 	}
 
 	if textStarted {

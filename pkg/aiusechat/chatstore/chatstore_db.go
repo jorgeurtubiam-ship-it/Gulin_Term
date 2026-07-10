@@ -213,3 +213,36 @@ func GetChatListFromDB() ([]ChatSummary, error) {
 		return summaries, nil
 	})
 }
+
+type TokenUsageLog struct {
+	ID           int64  `json:"id" db:"id"`
+	Timestamp    int64  `json:"timestamp" db:"timestamp"`
+	ChatID       string `json:"chat_id" db:"chat_id"`
+	Provider     string `json:"provider" db:"provider"`
+	Model        string `json:"model" db:"model"`
+	InputTokens  int    `json:"input_tokens" db:"input_tokens"`
+	OutputTokens int    `json:"output_tokens" db:"output_tokens"`
+	TotalTokens  int    `json:"total_tokens" db:"total_tokens"`
+}
+
+func SaveTokenUsage(log TokenUsageLog) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	return wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
+		query := `INSERT INTO token_usage_log 
+			(timestamp, chat_id, provider, model, input_tokens, output_tokens, total_tokens) 
+			VALUES (?, ?, ?, ?, ?, ?, ?)`
+			
+		tx.Exec(query,
+			log.Timestamp,
+			log.ChatID,
+			log.Provider,
+			log.Model,
+			log.InputTokens,
+			log.OutputTokens,
+			log.TotalTokens,
+		)
+		return nil
+	})
+}

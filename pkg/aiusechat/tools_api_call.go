@@ -48,7 +48,8 @@ func listAPIEndpointNames() ([]string, error) {
 		os.MkdirAll(dbDir, 0755)
 	}
 	dbPath := filepath.Join(dbDir, "gulin.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +348,8 @@ func GetAPIListToolDefinition() uctypes.ToolDefinition {
 		ToolAnyCallback: func(ctx context.Context, input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
 			dataDir := gulinbase.GetGulinDataDir()
 			dbPath := filepath.Join(dataDir, gulinbase.GulinDBDir, "gulin.db")
-			db, err := sql.Open("sqlite3", dbPath)
+			dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
+			db, err := sql.Open("sqlite3", dsn)
 			if err != nil {
 				return nil, fmt.Errorf("failed to open db: %w", err)
 			}
@@ -392,7 +394,8 @@ func getAPIEndpointByName(name string) (*uctypes.APIEndpointInfo, error) {
 		os.MkdirAll(dbDir, 0755)
 	}
 	dbPath := filepath.Join(dbDir, "gulin.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open gulin db: %w", err)
 	}
@@ -579,5 +582,6 @@ func getAPIContextDB() (*sql.DB, error) {
 		os.MkdirAll(dbDir, 0755)
 	}
 	dbPath := filepath.Join(dbDir, "gulin.db")
-	return sql.Open("sqlite3", dbPath)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
+	return sql.Open("sqlite3", dsn)
 }

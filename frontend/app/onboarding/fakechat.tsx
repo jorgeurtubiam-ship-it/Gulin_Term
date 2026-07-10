@@ -63,14 +63,14 @@ Want deeper triage? Run these and paste results:
 \`\`\`bash
 # 1) Scan recent logs for problems
 grep -Ei 'error|panic|fatal|websocket|1006|1011' \\
-  "$HOME/Library/Application Support/gulin-dev/gulinapp.log" | tail -n 200
+  "$HOME/Gulin_Workspace/data/gulinapp.log" | tail -n 200
 
 # 2) Inspect around the disconnect window
 awk '($0 ~ /2025-10-10 18:08:2[0-9]/){print}' \\
-  "$HOME/Library/Application Support/gulin-dev/gulinapp.log"
+  "$HOME/Gulin_Workspace/data/gulinapp.log"
 
 # 3) Live follow for recurring drops
-tail -f "$HOME/Library/Application Support/gulin-dev/gulinapp.log" \\
+tail -f "$HOME/Gulin_Workspace/data/gulinapp.log" \\
   | grep -Ei 'error|panic|fatal|websocket|close'
 \`\`\`
 

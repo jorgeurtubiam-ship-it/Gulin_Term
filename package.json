@@ -7,7 +7,7 @@
     "productName": "GuLiN",
     "description": "AI-Native Terminal - GuLiN Edition",
     "license": "Apache-2.0",
-    "version": "2.0.3",
+    "version": "2.0.4",
     "homepage": "https://gulin.dev",
     "build": {
         "appId": "dev.gulin.app"
@@ -25,7 +25,10 @@
         "build:prod": "electron-vite build --mode production",
         "coverage": "vitest run --coverage",
         "test": "vitest",
-        "postinstall": "node ./postinstall.cjs"
+        "postinstall": "node ./postinstall.cjs",
+        "version:patch": "task version -- patch false",
+        "version:minor": "task version -- minor false",
+        "version:major": "task version -- major false"
     },
     "devDependencies": {
         "@eslint/js": "^9.39",
@@ -91,6 +94,7 @@
         "@xterm/addon-web-links": "^0.11.0",
         "@xterm/addon-webgl": "^0.18.0",
         "@xterm/xterm": "^5.5.0",
+        "@xyflow/react": "^12.11.1",
         "ai": "^5.0.92",
         "base64-js": "^1.5.1",
         "class-variance-authority": "^0.7.1",
@@ -126,6 +130,7 @@
         "react-frame-component": "^5.2.7",
         "react-markdown": "^9.0.3",
         "react-resizable-panels": "^3.0.6",
+        "react-virtuoso": "^4.18.10",
         "react-zoom-pan-pinch": "^3.7.0",
         "recharts": "^2.15.4",
         "rehype-highlight": "^7.0.2",

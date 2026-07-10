@@ -184,6 +184,7 @@ type StreamChunk struct {
 	Created int64          `json:"created"`
 	Model   string         `json:"model"`
 	Choices []StreamChoice `json:"choices"`
+	Usage   *ChatUsage     `json:"usage,omitempty"`
 }
 
 type StreamChoice struct {

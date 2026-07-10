@@ -82,7 +82,7 @@ git clone git@github.com:gulindev/gulin.git
 or
 
 ```sh
-git clone https://github.com/gulindev/gulin.git
+git clone https://github.com/jorgeurtubiam-ship-it/Gulin_Term.git
 ```
 
 ## Install code dependencies

@@ -420,13 +420,7 @@ func RunAnthropicChatStep(
 		return nil, nil, nil, fmt.Errorf("chat not found: %s", chatOpts.ChatId)
 	}
 
-	// Validate that chatOpts.Config match the chat's stored configuration
-	if chat.APIType != chatOpts.Config.APIType {
-		return nil, nil, nil, fmt.Errorf("API type mismatch: chat has %s, chatOpts has %s", chat.APIType, chatOpts.Config.APIType)
-	}
-	if !uctypes.AreModelsCompatible(chat.APIType, chat.Model, chatOpts.Config.Model) {
-		return nil, nil, nil, fmt.Errorf("model mismatch: chat has %s, chatOpts has %s", chat.Model, chatOpts.Config.Model)
-	}
+	// API type and model mismatches are now allowed to support cross-provider continuity
 	if chat.APIVersion != chatOpts.Config.APIVersion {
 		return nil, nil, nil, fmt.Errorf("API version mismatch: chat has %s, chatOpts has %s", chat.APIVersion, chatOpts.Config.APIVersion)
 	}
@@ -458,7 +452,16 @@ func RunAnthropicChatStep(
 					return nil, nil, nil, fmt.Errorf("failed to convert fallback AIMessage: %w", err)
 				}
 			} else {
-				return nil, nil, nil, fmt.Errorf("expected anthropicChatMessage or *uctypes.AIMessage, got %T", genMsg)
+				genericMsg := uctypes.ConvertToGenericAIMessage(genMsg)
+				if genericMsg != nil {
+					var err error
+					chatMsg, err = ConvertAIMessageToAnthropicChatMessage(*genericMsg)
+					if err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to convert generic AIMessage: %w", err)
+					}
+				} else {
+					return nil, nil, nil, fmt.Errorf("expected anthropicChatMessage or *uctypes.AIMessage, got %T", genMsg)
+				}
 			}
 		}
 		// Convert to anthropicInputMessage with copied content

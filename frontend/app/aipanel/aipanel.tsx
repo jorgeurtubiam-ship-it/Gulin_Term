@@ -274,7 +274,8 @@ const AIPanelComponentInner = memo(() => {
                     chatid: globalStore.get(model.chatId),
                     widgetaccess: globalStore.get(model.widgetAccessAtom),
                     aimode: globalStore.get(model.currentAIMode),
-                    skill: globalStore.get(model.selectedSkill),
+                    skill: globalStore.get(model.selectedSkill)?.filename || "",
+                    tokenmode: globalStore.get(atoms.tokenModeAtom),
                 };
                 if (isBuilderWindow()) {
                     body.builderid = globalStore.get(atoms.builderId);
@@ -326,6 +327,20 @@ const AIPanelComponentInner = memo(() => {
     const [globalTokens, setGlobalTokens] = useState(() => {
         return parseInt(localStorage.getItem("gulin_global_tokens") || "0", 10);
     });
+
+    const handleResetGlobalTokens = useCallback(() => {
+        setGlobalTokens(0);
+        localStorage.removeItem("gulin_global_tokens");
+        localStorage.removeItem("gulin_chat_tokens_seen");
+    }, []);
+
+    useEffect(() => {
+        const handleReset = () => {
+            setGlobalTokens(0);
+        };
+        window.addEventListener("gulin_reset_global_tokens", handleReset);
+        return () => window.removeEventListener("gulin_reset_global_tokens", handleReset);
+    }, []);
 
     useEffect(() => {
         const currentChatId = globalStore.get(model.chatId) || "unknown";
@@ -644,7 +659,7 @@ const AIPanelComponentInner = memo(() => {
                 ) : (
                     <>
                         <div className="sticky top-0 z-20 bg-zinc-900/95 backdrop-blur-sm px-4 py-2 border-b border-gray-700/30">
-                            <AIModeDropdown tokenCount={approximateTokenCount} globalTokens={globalTokens} />
+                            <AIModeDropdown tokenCount={approximateTokenCount} globalTokens={globalTokens} onResetGlobalTokens={handleResetGlobalTokens} />
                         </div>
                         {messages.length === 0 && initialLoadDone ? (
                             <div

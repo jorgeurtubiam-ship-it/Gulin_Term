@@ -4,7 +4,7 @@
 import { fireAndForget } from "@/util/util";
 import { app, dialog, ipcMain, shell } from "electron";
 import envPaths from "env-paths";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
 import os from "os";
 import path from "path";
 import { GulinDevVarName, GulinDevViteVarName } from "../frontend/util/isdev";
@@ -99,6 +99,35 @@ function ensurePathExists(path: string): string {
 }
 
 /**
+ * Gets the path to the workspace pointer file.
+ */
+// The old .gulin_pointer is deprecated. We now use Gulin_Workspace/data/gulin_pointer
+function getWorkspacePointerPath(): string {
+    const homeDir = app.getPath("home");
+    return path.join(homeDir, "Gulin_Workspace", "data", "gulin_pointer");
+}
+
+/**
+ * Gets the base path for the Gulin Workspace.
+ * It checks the pointer file first. If it exists and points to a valid directory, it uses that.
+ * Otherwise, it defaults to ~/Gulin_Workspace.
+ */
+function getWorkspacePath(): string {
+    const pointerPath = getWorkspacePointerPath();
+    if (existsSync(pointerPath)) {
+        try {
+            const content = readFileSync(pointerPath, 'utf8').trim();
+            if (content && existsSync(content)) {
+                return content;
+            }
+        } catch (e) {
+            console.error("Error reading gulin pointer", e);
+        }
+    }
+    return path.join(app.getPath("home"), "Gulin_Workspace");
+}
+
+/**
  * Gets the path to the directory where Gulin configurations are stored. Creates the directory if it does not exist.
  * Handles backwards compatibility with the old Gulin Home directory model, where configurations and data were stored together.
  * @returns The path where configurations should be stored.
@@ -111,16 +140,12 @@ function getGulinConfigDir(): string {
     }
 
     const override = process.env[GulinConfigHomeVarName];
-    const xdgConfigHome = process.env.XDG_CONFIG_HOME;
-    let retVal: string;
     if (override) {
-        retVal = override;
-    } else if (xdgConfigHome) {
-        retVal = path.join(xdgConfigHome, gulinDirName);
-    } else {
-        retVal = path.join(app.getPath("home"), ".config", gulinDirName);
+        return ensurePathExists(override);
     }
-    return ensurePathExists(retVal);
+    
+    // Gulin_Workspace Flat Config
+    return ensurePathExists(path.join(getWorkspacePath(), "config"));
 }
 
 /**
@@ -136,16 +161,12 @@ function getGulinDataDir(): string {
     }
 
     const override = process.env[GulinDataHomeVarName];
-    const xdgDataHome = process.env.XDG_DATA_HOME;
-    let retVal: string;
     if (override) {
-        retVal = override;
-    } else if (xdgDataHome) {
-        retVal = path.join(xdgDataHome, gulinDirName);
-    } else {
-        retVal = paths.data;
+        return ensurePathExists(override);
     }
-    return ensurePathExists(retVal);
+    
+    // Gulin_Workspace Data
+    return ensurePathExists(path.join(getWorkspacePath(), "data"));
 }
 
 function getElectronAppBasePath(): string {

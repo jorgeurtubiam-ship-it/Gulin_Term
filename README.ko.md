@@ -83,7 +83,7 @@ WSH 헬퍼는 다음 플랫폼에서 실행됩니다.
 
 Gulin는 계속 발전하고 있습니다. 로드맵은 릴리스 목표에 맞춰 지속적으로 업데이트됩니다. [여기](./ROADMAP.md)에서 확인하세요.
 
-향후 릴리스 방향에 의견을 주고 싶다면 [Discord](https://discord.gg/XfvZ334gwU)에 참여하거나 [Feature Request](https://github.com/gulindev/gulin/issues/new/choose)를 등록해 주세요.
+향후 릴리스 방향에 의견을 주고 싶다면 [Discord](https://discord.gg/XfvZ334gwU)에 참여하거나 [Feature Request](https://github.com/jorgeurtubiam-ship-it/Gulin_Term/issues/new/choose)를 등록해 주세요.
 
 ## 링크
 

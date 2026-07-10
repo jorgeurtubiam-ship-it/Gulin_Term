@@ -683,7 +683,7 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
                 placement="bottom"
                 hideOnClick
                 divRef={workspaceSwitcherRef}
-                divClassName="flex items-center h-full"
+                divClassName="flex items-end h-full"
             >
                 <WorkspaceSwitcher />
             </Tooltip>

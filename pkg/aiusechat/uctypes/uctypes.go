@@ -699,29 +699,44 @@ func ParseRateLimitHeader(header string) *RateLimitInfo {
 }
 
 func AreModelsCompatible(apiType, model1, model2 string) bool {
-	if model1 == model2 {
-		return true
-	}
-
-	// For OpenAI-compatible chat APIs (Ollama, DeepSeek, etc.), allow sharing history
-	if apiType == APIType_OpenAIChat || apiType == APIType_OpenAIResponses {
-		return true
-	}
-
-	return false
+	return true
 }
 
 func AreAPITypesCompatible(apiType1, apiType2 string) bool {
-	if apiType1 == apiType2 {
-		return true
+	return true
+}
+
+func ConvertToGenericAIMessage(msg GenAIMessage) *AIMessage {
+	if msg == nil {
+		return nil
 	}
-	// openai-chat and openai-responses are compatible as they use the same underlying message format
-	isOpenAI1 := (apiType1 == APIType_OpenAIChat || apiType1 == APIType_OpenAIResponses)
-	isOpenAI2 := (apiType2 == APIType_OpenAIChat || apiType2 == APIType_OpenAIResponses)
-	if isOpenAI1 && isOpenAI2 {
-		return true
+	if aiMsg, ok := msg.(*AIMessage); ok {
+		return aiMsg
 	}
-	return false
+	
+	role := msg.GetRole()
+	if role == "model" {
+		role = "assistant"
+	} else if role != "assistant" && role != "system" {
+		role = "user"
+	}
+	
+	content := msg.GetContent()
+	if content == "" {
+		content = "(No text content)"
+	}
+	
+	return &AIMessage{
+		MessageId: msg.GetMessageId(),
+		Role:      role,
+		Pinned:    msg.IsPinned(),
+		Parts: []AIMessagePart{
+			{
+				Type: AIMessagePartTypeText,
+				Text: content,
+			},
+		},
+	}
 }
 
 var NativeMessageUnmarshalers = make(map[string]func(data []byte) (GenAIMessage, error))

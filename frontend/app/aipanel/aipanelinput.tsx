@@ -9,7 +9,8 @@ import { Tooltip } from "@/element/tooltip";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import * as jotai from "jotai";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { getWebServerEndpoint } from "@/util/endpoints";
 import { SkillManager } from "./skillmanager";
 
 interface AIPanelInputProps {
@@ -29,6 +30,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     const isFocused = useAtomValue(model.isGulinAIFocusedAtom);
     const isChatEmpty = useAtomValue(model.isChatEmptyAtom);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const hiddenDivRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
     const [isManagerOpen, setIsManagerOpen] = useState(false);
@@ -52,12 +54,20 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
 
     const resizeTextarea = useCallback(() => {
         const textarea = textareaRef.current;
-        if (!textarea) return;
+        const hiddenDiv = hiddenDivRef.current;
+        if (!textarea || !hiddenDiv) return;
 
-        textarea.style.height = "auto";
-        const scrollHeight = textarea.scrollHeight;
-        const maxHeight = 7 * 24;
-        textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+        hiddenDiv.style.width = `${textarea.clientWidth}px`;
+        hiddenDiv.textContent = (textarea.value || "") + " ";
+        
+        const scrollHeight = hiddenDiv.scrollHeight;
+        const minHeight = 4 * 20; // approx 4 lines minimum
+        const maxHeight = 15 * 20; // approx 15 lines maximum
+        const newHeight = `${Math.min(Math.max(scrollHeight, minHeight), maxHeight)}px`;
+        
+        if (textarea.style.height !== newHeight) {
+            textarea.style.height = newHeight;
+        }
     }, []);
 
     useEffect(() => {
@@ -222,7 +232,12 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                             "w-full text-white px-2 py-2 pr-5 focus:outline-none resize-none overflow-auto bg-zinc-800/50"
                         )}
                         style={{ fontSize: "13px" }}
-                        rows={2}
+                        rows={1}
+                    />
+                    <div
+                        ref={hiddenDivRef}
+                        className="w-full px-2 py-2 pr-5 whitespace-pre-wrap break-words absolute opacity-0 pointer-events-none"
+                        style={{ fontSize: "13px", top: -9999, left: -9999, zIndex: -100 }}
                     />
                     <Tooltip content={t("gulin.ai.input.attach_tooltip")} placement="top" divClassName="absolute bottom-6.5 right-1">
                         <button
@@ -271,10 +286,110 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     );
 });
 
+const SkillTreeNode = ({ node, level, onSelect, selectedFilename }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    
+    if (node.isSkill) {
+        let name = node.name.replace(/[-_]/g, " ");
+        // Capitalize words
+        name = name.replace(/\b\w/g, (c: string) => c.toUpperCase());
+        return (
+            <button
+                onClick={() => onSelect(node.skill)}
+                className={cn(
+                    "flex items-center gap-2 py-1.5 text-xs transition-colors hover:text-accent text-left w-full pr-3",
+                    selectedFilename === node.skill.filename ? "text-accent font-bold" : "text-gray-300"
+                )}
+                style={{ paddingLeft: `${(level + 1) * 12}px` }}
+            >
+                <i className="fa-solid fa-star text-[10px] text-accent"></i>
+                <span className="truncate">{name}</span>
+            </button>
+        );
+    }
+
+    return (
+        <div className="flex flex-col">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex items-center gap-2 py-1.5 text-xs transition-colors hover:text-white text-left w-full text-gray-400 font-medium pr-3"
+                style={{ paddingLeft: `${(level + 1) * 12}px` }}
+            >
+                <i className={cn("fa-solid text-[8px] w-2 transition-transform", isOpen ? "fa-chevron-down" : "fa-chevron-right")}></i>
+                <i className="fa-regular fa-folder text-[10px]"></i>
+                <span className="truncate capitalize">{node.name.replace(/[-_]/g, " ")}</span>
+            </button>
+            {isOpen && node.children.map((child: any, i: number) => (
+                <SkillTreeNode key={i} node={child} level={level + 1} onSelect={onSelect} selectedFilename={selectedFilename} />
+            ))}
+        </div>
+    );
+};
+
 const SkillSelector = memo(({ model }: { model: GulinAIModel }) => {
     const [selectedSkill, setSelectedSkill] = useAtom(model.selectedSkill);
-    const availableSkills = useAtomValue(model.availableSkills);
+    const [availableSkills, setAvailableSkills] = useAtom(model.availableSkills);
     const [isOpen, setIsOpen] = useState(false);
+
+    useEffect(() => {
+        const fetchSkills = async () => {
+            try {
+                const response = await fetch(`${getWebServerEndpoint()}/gulin/brain-list`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        const backendSkills = data
+                            .filter((item: any) => item.filename.startsWith("skills/"))
+                            .map((item: any) => ({ title: "✨ " + item.title, filename: item.filename }));
+                        
+                        setAvailableSkills(backendSkills);
+                    }
+                }
+            } catch (e) {
+                console.error("Error fetching skills", e);
+            }
+        };
+        fetchSkills();
+    }, [setAvailableSkills]);
+
+    const skillTree = useMemo(() => {
+        const root: any = { name: "root", children: [], isSkill: false };
+        availableSkills.forEach(skill => {
+            const cleanTitle = skill.title.replace("✨ ", "");
+            const parts = cleanTitle.split("/"); 
+            let current = root;
+            for (let i = 0; i < parts.length - 1; i++) {
+                const part = parts[i];
+                let child = current.children.find((c: any) => c.name === part && !c.isSkill);
+                if (!child) {
+                    child = { name: part, children: [], isSkill: false };
+                    current.children.push(child);
+                }
+                current = child;
+            }
+            let finalName = parts[parts.length - 1];
+            if (finalName.toLowerCase() === "skill" && parts.length > 1) {
+                finalName = parts[parts.length - 2];
+            }
+            current.children.push({
+                name: finalName,
+                isSkill: true,
+                skill: skill
+            });
+        });
+        return root.children;
+    }, [availableSkills]);
+
+    // Compute display name for selected skill
+    let selectedDisplayName = "SKILLS";
+    if (selectedSkill) {
+        const parts = selectedSkill.title.replace("✨ ", "").split("/");
+        selectedDisplayName = parts[parts.length - 1];
+        if (selectedDisplayName.toLowerCase() === "skill" && parts.length > 1) {
+            selectedDisplayName = parts[parts.length - 2];
+        }
+        selectedDisplayName = selectedDisplayName.replace(/[-_]/g, " ");
+    }
 
     return (
         <div className="relative">
@@ -282,50 +397,52 @@ const SkillSelector = memo(({ model }: { model: GulinAIModel }) => {
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
                 className={cn(
-                    "flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border",
+                    "flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border max-w-[150px]",
                     selectedSkill 
                         ? "bg-accent/20 text-accent border-accent/50 shadow-[0_0_8px_rgba(var(--accent-rgb),0.2)]"
                         : "bg-zinc-800/50 text-zinc-500 border-transparent hover:text-zinc-400"
                 )}
             >
                 <i className="fa-solid fa-graduation-cap text-[10px]"></i>
-                {selectedSkill ? selectedSkill.split(" ").slice(1).join(" ") : "SKILLS"}
+                <span className="truncate">{selectedDisplayName}</span>
             </button>
 
             {isOpen && (
-                <div className="absolute bottom-full left-0 mb-2 w-56 bg-zinc-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2">
-                    <div className="bg-zinc-800/80 px-3 py-2 border-b border-gray-700">
+                <div className="absolute bottom-full left-0 mb-2 w-80 bg-zinc-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="bg-zinc-800/80 px-3 py-2 border-b border-gray-700 flex justify-between items-center">
                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PROTOCOLOS EXPERTOS</span>
                     </div>
-                    <div className="flex flex-col py-1 max-h-60 overflow-y-auto">
+                    <div className="flex flex-col py-2 max-h-64 overflow-y-auto">
                         <button
                             onClick={() => { setSelectedSkill(null); setIsOpen(false); }}
                             className={cn(
-                                "flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-zinc-800 text-left",
+                                "flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-zinc-800 text-left mb-2",
                                 !selectedSkill ? "text-accent font-bold" : "text-gray-300"
                             )}
                         >
                             <i className="fa-solid fa-ghost w-4"></i> Sin Skill (Modo Base)
                         </button>
-                        {availableSkills.map(skill => (
-                            <button
-                                key={skill}
-                                onClick={() => { setSelectedSkill(skill); setIsOpen(false); }}
-                                className={cn(
-                                    "flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-zinc-800 text-left",
-                                    selectedSkill === skill ? "text-accent font-bold" : "text-gray-300"
-                                )}
-                            >
-                                <span className="w-4">{skill.split(" ")[0]}</span>
-                                {skill.split(" ").slice(1).join(" ")}
-                            </button>
-                        ))}
+                        
+                        {skillTree.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-gray-500 italic">No hay skills instaladas</div>
+                        ) : (
+                            <div className="flex flex-col">
+                                {skillTree.map((node: any, i: number) => (
+                                    <SkillTreeNode 
+                                        key={i} 
+                                        node={node} 
+                                        level={0} 
+                                        onSelect={(s: any) => { setSelectedSkill(s); setIsOpen(false); }} 
+                                        selectedFilename={selectedSkill?.filename} 
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                     <div className="border-t border-gray-700 bg-zinc-800/30 p-1">
                         <button 
                             onClick={() => { 
                                 setIsOpen(false); 
-                                // Dispatch custom event to open manager
                                 window.dispatchEvent(new CustomEvent("gulin:open-skill-manager"));
                             }}
                             className="w-full text-center py-1.5 text-[9px] font-bold text-gray-500 hover:text-accent transition-colors"

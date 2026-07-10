@@ -110,3 +110,15 @@ a {
     background: rgba(20, 20, 20, 0.35) !important;
 }
 
+.fa-kit.fa-gulin-logo-solid::before, .fa-kit.fa-gulin-logo-outline::before {
+    content: " " !important;
+    display: inline-block;
+    width: 44px;
+    height: 15px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='34' viewBox='0 0 100 34' fill='none'><text x='0' y='24' font-family='monospace, sans-serif' font-size='24' font-weight='bold' fill='%2339FF14'>%3E gulin</text></svg>");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    vertical-align: middle;
+}
+

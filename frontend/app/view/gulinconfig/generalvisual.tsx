@@ -110,6 +110,29 @@ export const GulinGeneralVisualContent = memo(({ model }: GulinGeneralVisualCont
                         <span className="text-xs text-zinc-500 mt-1">{t("settings.general.gulinbridge.desc")}</span>
                     </div>
 
+                    <div className="flex flex-col gap-4 p-4 bg-zinc-800/20 border border-border rounded-lg mt-4">
+                        <div className="flex items-center gap-2 border-b border-border pb-2 mb-2">
+                            <i className="fa-solid fa-calculator text-green-500" />
+                            <h3 className="font-semibold text-zinc-200">Uso de Tokens</h3>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="text-sm font-medium text-zinc-300">
+                                Resetear contador histórico global
+                            </span>
+                            <button
+                                onClick={() => {
+                                    localStorage.removeItem("gulin_global_tokens");
+                                    localStorage.removeItem("gulin_chat_tokens_seen");
+                                    window.dispatchEvent(new Event("gulin_reset_global_tokens"));
+                                }}
+                                className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded transition-colors text-xs font-medium cursor-pointer"
+                            >
+                                Resetear Histórico
+                            </button>
+                        </div>
+                        <span className="text-xs text-zinc-500 mt-1">Borra el contador global de tokens acumulados de todas tus sesiones.</span>
+                    </div>
+
                     <div className="pt-4 mt-4 border-t border-zinc-700/50">
                         <p className="text-xs text-zinc-400">{t("gulin.ai.note_raw")}</p>
                     </div>

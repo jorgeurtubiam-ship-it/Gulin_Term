@@ -18,6 +18,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/gulindev/gulin/pkg/gulinbase"
 )
 
 const (
@@ -102,80 +104,80 @@ func ExtractCwdFromTabState(tabState string) string {
 	return ""
 }
 
-// GetProjectInsightsPath retorna la ruta completa a `.gulin/insights.md` para el proyecto activo.
-// Si el TabState no tiene CWD, usa el directorio de trabajo del proceso del servidor.
-func GetProjectInsightsPath(tabState string) string {
-	cwd := ExtractCwdFromTabState(tabState)
-	if cwd == "" {
-		// Fallback directo al directorio del servidor
-		var err error
-		cwd, err = os.Getwd()
-		if err != nil || cwd == "" {
-			return ""
-		}
-	}
-
-	root := FindProjectRoot(cwd)
-	if root == "" {
-		return ""
-	}
-
-	return filepath.Join(root, GulinProjectDirName, GulinInsightsFileName)
+func getLearnedBaseDir() string {
+	dataDir := gulinbase.GetGulinDataDir()
+	workspaceDir := filepath.Dir(dataDir)
+	return filepath.Join(workspaceDir, "learned")
 }
 
-// AppendProjectInsight agrega un insight al archivo `.gulin/insights.md` del proyecto.
-// Crea la carpeta y el archivo si no existen. Rota si supera el máximo.
-func AppendProjectInsight(insightsPath string, toolName string, insight string) error {
-	if insightsPath == "" {
-		return fmt.Errorf("no insights path provided")
+// GetProjectInsightsDir retorna la ruta a la carpeta del proyecto dentro de learned/
+func GetProjectInsightsDir(tabState string) string {
+	cwd := ExtractCwdFromTabState(tabState)
+	if cwd == "" {
+		cwd, _ = os.Getwd()
 	}
 
-	// Crear el directorio .gulin si no existe
-	dir := filepath.Dir(insightsPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to create .gulin dir: %w", err)
-	}
-
-	// Leer el archivo existente
-	existingContent := ""
-	if data, err := os.ReadFile(insightsPath); err == nil {
-		existingContent = string(data)
-	}
-
-	// Si es un archivo nuevo, agregar encabezado
-	if existingContent == "" {
-		existingContent = "# Gulin — Lecciones Aprendidas\n\nEstos insights fueron generados automáticamente al analizar errores de herramientas en este proyecto.\n"
-	}
-
-	// Contar insights existentes y rotar si supera el máximo
-	insightCount := strings.Count(existingContent, "\n## [")
-	if insightCount >= ReflectionMaxInsights {
-		// Eliminar el insight más antiguo (el primero después del encabezado)
-		firstIdx := strings.Index(existingContent, "\n## [")
-		secondIdx := strings.Index(existingContent[firstIdx+1:], "\n## [")
-		if secondIdx != -1 {
-			existingContent = existingContent[:firstIdx] + existingContent[firstIdx+1+secondIdx:]
+	projectName := "general"
+	if cwd != "" {
+		root := FindProjectRoot(cwd)
+		if root != "" {
+			projectName = filepath.Base(root)
 		}
 	}
 
-	// Construir la nueva entrada con timestamp
-	timestamp := time.Now().Format("2006-01-02 15:04")
-	entry := fmt.Sprintf("\n## [%s] %s\n> %s\n", timestamp, toolName, insight)
+	return filepath.Join(getLearnedBaseDir(), projectName)
+}
 
-	newContent := existingContent + entry
-	return os.WriteFile(insightsPath, []byte(newContent), 0600)
+// AppendProjectInsight agrega un insight usando el formato ADR (001-xxx.md).
+func AppendProjectInsight(insightsDir string, toolName string, insight string) error {
+	if insightsDir == "" {
+		return fmt.Errorf("no insights dir provided")
+	}
+
+	if err := os.MkdirAll(insightsDir, 0700); err != nil {
+		return fmt.Errorf("failed to create learned dir: %w", err)
+	}
+
+	// Buscar el número de secuencia más alto
+	entries, err := os.ReadDir(insightsDir)
+	maxSeq := 0
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+				continue
+			}
+			var seq int
+			if n, _ := fmt.Sscanf(entry.Name(), "%03d", &seq); n == 1 {
+				if seq > maxSeq {
+					maxSeq = seq
+				}
+			}
+		}
+	}
+
+	nextSeq := maxSeq + 1
+
+	safeToolName := strings.ReplaceAll(toolName, " ", "-")
+	safeToolName = strings.ReplaceAll(safeToolName, "/", "-")
+	fileName := fmt.Sprintf("%03d-insight-%s.md", nextSeq, safeToolName)
+	filePath := filepath.Join(insightsDir, fileName)
+
+	timestamp := time.Now().Format("2006-01-02 15:04")
+	content := fmt.Sprintf("# Gulin — Lección Aprendida\n\nGenerado automáticamente.\n\n## [%s] %s\n> %s\n", timestamp, toolName, insight)
+
+	return os.WriteFile(filePath, []byte(content), 0600)
 }
 
 // ReflectOnToolFailure analiza un error de herramienta en segundo plano y guarda el insight.
 // Debe llamarse como goroutine: go ReflectOnToolFailure(...)
 func ReflectOnToolFailure(toolName string, errorText string, tabState string) {
-	insightsPath := GetProjectInsightsPath(tabState)
-	if insightsPath == "" {
-		log.Printf("[ReflectionEngine] No se pudo determinar directorio del proyecto desde TabState. Omitiendo reflexión para '%s'.\n", toolName)
+	insightsDir := GetProjectInsightsDir(tabState)
+	if insightsDir == "" {
+		log.Printf("[ReflectionEngine] No se pudo determinar directorio de insights. Omitiendo reflexión para '%s'.\n", toolName)
 		return
 	}
 
-	log.Printf("[ReflectionEngine] Analizando fallo de '%s' → insight en: %s\n", toolName, insightsPath)
+	log.Printf("[ReflectionEngine] Analizando fallo de '%s' → insight en: %s\n", toolName, insightsDir)
 
 	// Generar insight heurístico basado en el patrón del error
 	insight := generateHeuristicInsight(toolName, errorText)
@@ -184,7 +186,7 @@ func ReflectOnToolFailure(toolName string, errorText string, tabState string) {
 		return
 	}
 
-	if err := AppendProjectInsight(insightsPath, toolName, insight); err != nil {
+	if err := AppendProjectInsight(insightsDir, toolName, insight); err != nil {
 		log.Printf("[ReflectionEngine] Error guardando insight: %v\n", err)
 		return
 	}
@@ -266,38 +268,50 @@ func generateHeuristicInsight(toolName string, errorText string) string {
 	return ""
 }
 
-// ReadProjectInsights lee el archivo `.gulin/insights.md` del proyecto activo
+// ReadProjectInsights lee los archivos ADR de insights del proyecto activo
 // y retorna su contenido listo para inyectar en el System Prompt.
 // Retorna "" si no hay insights o no se puede leer el archivo.
 func ReadProjectInsights(tabState string) string {
-	insightsPath := GetProjectInsightsPath(tabState)
-	if insightsPath == "" {
+	insightsDir := GetProjectInsightsDir(tabState)
+	if insightsDir == "" {
 		return ""
 	}
 
-	data, err := os.ReadFile(insightsPath)
+	entries, err := os.ReadDir(insightsDir)
 	if err != nil {
-		return "" // archivo no existe todavía, es normal
+		return "" // directorio no existe, es normal
 	}
 
-	content := strings.TrimSpace(string(data))
-	if content == "" {
-		return ""
+	var sb strings.Builder
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(insightsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+
+		sb.WriteString("\n--- Archivo: ")
+		sb.WriteString(entry.Name())
+		sb.WriteString(" ---\n")
+		sb.WriteString(string(data))
+		sb.WriteString("\n")
+		count++
 	}
 
-	// Contar cuántos insights hay realmente
-	count := strings.Count(content, "\n## [")
 	if count == 0 {
 		return ""
 	}
 
-	// Envolver en un bloque de contexto para el LLM
-	var sb strings.Builder
-	sb.WriteString("\n<gulin_lessons_learned>\n")
-	sb.WriteString(fmt.Sprintf("LECCIONES APRENDIDAS EN ESTE PROYECTO (%d insights):\n", count))
-	sb.WriteString("Lee estos insights ANTES de ejecutar cualquier herramienta. Son errores reales que ocurrieron en este proyecto y debes evitar repetirlos.\n\n")
-	sb.WriteString(content)
-	sb.WriteString("\n</gulin_lessons_learned>\n")
+	var finalSb strings.Builder
+	finalSb.WriteString("\n<gulin_lessons_learned>\n")
+	finalSb.WriteString(fmt.Sprintf("LECCIONES APRENDIDAS EN ESTE PROYECTO (%d insights):\n", count))
+	finalSb.WriteString("Lee estos insights ANTES de ejecutar cualquier herramienta. Son errores reales que ocurrieron en este proyecto y debes evitar repetirlos.\n\n")
+	finalSb.WriteString(sb.String())
+	finalSb.WriteString("\n</gulin_lessons_learned>\n")
 
-	return sb.String()
+	return finalSb.String()
 }

@@ -5,6 +5,7 @@ package gulinbase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -131,6 +132,10 @@ func GetGulinConfigDir() string {
 	return ConfigHome_VarCache
 }
 
+func GetGulinLogsDir() string {
+	return filepath.Join(GetGulinDataDir(), "logs")
+}
+
 func GetGulinAppBinPath() string {
 	return filepath.Join(GetGulinAppPath(), AppPathBinDir)
 }
@@ -199,6 +204,118 @@ func EnsureGulinDBDir() error {
 
 func EnsureGulinConfigDir() error {
 	return CacheEnsureDir(GetGulinConfigDir(), "gulinconfig", 0700, "gulin config directory")
+}
+
+type GulinConfig struct {
+	Rutas map[string]map[string]string `json:"rutas"`
+}
+
+func GetConfiguredSkillsDir() string {
+	configDir := GetGulinConfigDir()
+	configPath := filepath.Join(configDir, "gulin.config.json")
+	
+	defaultSkillsDir := filepath.Join(filepath.Dir(GetGulinDataDir()), "skills")
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return defaultSkillsDir
+	}
+
+	var config GulinConfig
+	err = json.Unmarshal(content, &config)
+	if err != nil {
+		return defaultSkillsDir
+	}
+
+	osStr := "linux"
+	if runtime.GOOS == "darwin" {
+		osStr = "darwin"
+	} else if runtime.GOOS == "windows" {
+		osStr = "windows"
+	}
+
+	if rutasOS, ok := config.Rutas[osStr]; ok {
+		if skillsDir, ok := rutasOS["skills_dir"]; ok && skillsDir != "" {
+			return ExpandHomeDirSafe(skillsDir)
+		}
+	}
+
+	return defaultSkillsDir
+}
+
+func EnsureEmptyConfigFiles() error {
+	configDir := GetGulinConfigDir()
+	
+	defaultGulinConfig := `{
+  "//": "Archivo maestro de configuración de GuLiN Agent. Define las rutas de instalación cross-platform.",
+  "gulin": {
+    "version": "2.0.3",
+    "app_name": "GuLiN",
+    "persistent_logging": true
+  },
+  "rutas": {
+    "darwin": {
+      "app_dir": "~/Applications/GuLiN.app",
+      "data_dir": "~/Gulin_Workspace/data",
+      "config_dir": "~/Gulin_Workspace/config",
+      "plugins_dir": "~/Gulin_Workspace/plugins",
+      "db_dir": "~/Gulin_Workspace/data/db",
+      "cache_dir": "~/Gulin_Workspace/data/cache",
+      "electron_data_dir": "~/Gulin_Workspace/data/electron",
+      "preferences_file": "~/Gulin_Workspace/config/dev.gulin.app.plist",
+      "saved_state_dir": "~/Gulin_Workspace/data/savedState",
+      "logs_dir": "~/Gulin_Workspace/data/logs",
+      "cli_install_dir": "/usr/local/bin",
+      "shell_rc_file": "~/.zshrc",
+      "skills_dir": "~/Gulin_Workspace/skills"
+    },
+    "linux": {
+      "app_dir": "/opt/GuLiN",
+      "data_dir": "~/Gulin_Workspace/data",
+      "config_dir": "~/Gulin_Workspace/config",
+      "plugins_dir": "~/Gulin_Workspace/plugins",
+      "db_dir": "~/Gulin_Workspace/data/db",
+      "cache_dir": "~/Gulin_Workspace/data/cache",
+      "logs_dir": "~/Gulin_Workspace/data/logs",
+      "cli_install_dir": "/usr/local/bin",
+      "shell_rc_file": "~/.bashrc",
+      "skills_dir": "~/Gulin_Workspace/skills"
+    },
+    "windows": {
+      "app_dir": "%LOCALAPPDATA%/GuLiN",
+      "data_dir": "~/Gulin_Workspace/data",
+      "config_dir": "~/Gulin_Workspace/config",
+      "plugins_dir": "~/Gulin_Workspace/plugins",
+      "db_dir": "~/Gulin_Workspace/data/db",
+      "cache_dir": "~/Gulin_Workspace/data/cache",
+      "logs_dir": "~/Gulin_Workspace/data/logs",
+      "cli_install_dir": "%LOCALAPPDATA%/gulin/bin",
+      "shell_rc_file": "%USERPROFILE%/Documents/PowerShell/Microsoft.PowerShell_profile.ps1",
+      "skills_dir": "~/Gulin_Workspace/skills"
+    }
+  }
+}`
+	
+	files := map[string]string{
+		"gulin.config.json": defaultGulinConfig,
+		"gulinai.json": "{\n  \"default_mode\": \"balanced\"\n}",
+		"widgets.json": "[]",
+		"db-connections.json": "[]",
+		"api-manager.json": "[]",
+		"brain-map.json": "{}",
+		"skills.json": "[]",
+	}
+	
+	for file, content := range files {
+		fullPath := filepath.Join(configDir, file)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			err = os.WriteFile(fullPath, []byte(content), 0644)
+			if err != nil {
+				return fmt.Errorf("error creating empty config file %s: %v", file, err)
+			}
+		}
+	}
+	return nil
 }
 
 func EnsureGulinPresetsDir() error {

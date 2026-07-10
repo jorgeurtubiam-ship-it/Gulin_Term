@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useAtomValue } from "jotai";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef } from "react";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { AIMessage } from "./aimessage";
 import { AIModeDropdown } from "./aimode";
 import { type GulinUIMessage } from "./aitypes";
@@ -17,55 +18,26 @@ interface AIPanelMessagesProps {
 export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPanelMessagesProps) => {
     const model = GulinAIModel.getInstance();
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const virtuosoRef = useRef<VirtuosoHandle>(null);
     const prevStatusRef = useRef<string>(status);
-    const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-
-    const checkIfAtBottom = () => {
-        const container = messagesContainerRef.current;
-        if (!container) return true;
-
-        const threshold = 50;
-        const scrollBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-        return scrollBottom <= threshold;
-    };
-
-    const handleScroll = () => {
-        const atBottom = checkIfAtBottom();
-        setShouldAutoScroll(atBottom);
-    };
 
     const scrollToBottom = () => {
-        const container = messagesContainerRef.current;
-        if (container) {
-            container.scrollTop = container.scrollHeight;
-            container.scrollLeft = 0;
-            setShouldAutoScroll(true);
+        if (virtuosoRef.current) {
+            virtuosoRef.current.scrollToIndex({
+                index: "LAST",
+                align: "end",
+                behavior: "smooth",
+            });
         }
     };
-
-    useEffect(() => {
-        const container = messagesContainerRef.current;
-        if (!container) return;
-
-        container.addEventListener("scroll", handleScroll);
-        return () => container.removeEventListener("scroll", handleScroll);
-    }, []);
 
     useEffect(() => {
         model.registerScrollToBottom(scrollToBottom);
     }, [model]);
 
     useEffect(() => {
-        if (shouldAutoScroll) {
-            scrollToBottom();
-        }
-    }, [messages, shouldAutoScroll]);
-
-    useEffect(() => {
         if (isPanelOpen) {
-            scrollToBottom();
+            setTimeout(scrollToBottom, 50);
         }
     }, [isPanelOpen]);
 
@@ -82,24 +54,36 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
         prevStatusRef.current = status;
     }, [status]);
 
+    const displayMessages = [...messages];
+    if (
+        status === "streaming" &&
+        (messages.length === 0 || messages[messages.length - 1].role !== "assistant")
+    ) {
+        displayMessages.push({ role: "assistant", parts: [], id: "last-message" } as any);
+    }
+
     return (
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-2 space-y-4" onContextMenu={onContextMenu}>
-            {messages.map((message, index) => {
-                const isLastMessage = index === messages.length - 1;
-                const isStreaming = status === "streaming" && isLastMessage && message.role === "assistant";
-                return <AIMessage key={message.id} message={message} isStreaming={isStreaming} />;
-            })}
+        <div className="flex-1 h-full relative" onContextMenu={onContextMenu}>
+            <Virtuoso
+                ref={virtuosoRef}
+                data={displayMessages}
+                className="w-full h-full"
+                style={{ padding: "0.5rem" }}
+                initialTopMostItemIndex={displayMessages.length > 0 ? displayMessages.length - 1 : 0}
+                followOutput="smooth"
+                itemContent={(index, message) => {
+                    const isStreamingDummy = message.id === "last-message";
+                    const isStreaming =
+                        status === "streaming" &&
+                        (isStreamingDummy || (index === displayMessages.length - 1 && message.role === "assistant"));
 
-            {status === "streaming" &&
-                (messages.length === 0 || messages[messages.length - 1].role !== "assistant") && (
-                    <AIMessage
-                        key="last-message"
-                        message={{ role: "assistant", parts: [], id: "last-message" } as any}
-                        isStreaming={true}
-                    />
-                )}
-
-            <div ref={messagesEndRef} />
+                    return (
+                        <div className="pb-4">
+                            <AIMessage key={message.id} message={message} isStreaming={isStreaming} />
+                        </div>
+                    );
+                }}
+            />
         </div>
     );
 });

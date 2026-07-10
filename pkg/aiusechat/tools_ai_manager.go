@@ -29,34 +29,55 @@ func getGulintermDB() (*sql.DB, error) {
 		}
 	}
 	dbPath := filepath.Join(dbDir, "gulin.db")
-	return sql.Open("sqlite3", dbPath)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
+	return sql.Open("sqlite3", dsn)
 }
 
 func GulinAIApiListHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("[API-MANAGER] GulinAIApiListHandler called\n")
 
-	db, err := getGulintermDB()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to open db: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer db.Close()
-
-	EnsureAPIEndpointsSchema(db)
-
-	rows, err := db.Query(fmt.Sprintf("SELECT id, name, url, COALESCE(username, ''), COALESCE(password, ''), COALESCE(token, ''), COALESCE(system_prompt, ''), COALESCE(knowledge_source, ''), COALESCE(auth_instructions, ''), created_at, updated_at FROM %s ORDER BY created_at DESC", GulinAPIEndpointsTable))
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to query endpoints: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
- 
 	var endpoints []uctypes.APIEndpointInfo
-	for rows.Next() {
-		var e uctypes.APIEndpointInfo
-		err := rows.Scan(&e.ID, &e.Name, &e.URL, &e.Username, &e.Password, &e.Token, &e.SystemPrompt, &e.KnowledgeSource, &e.AuthInstructions, &e.CreatedAt, &e.UpdatedAt)
+
+	// Read metadata from api-manager.json
+	configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "api-manager.json")
+	fileData, err := os.ReadFile(configPath)
+	var fileApis map[string]uctypes.APIEndpointInfo
+	if err == nil {
+		json.Unmarshal(fileData, &fileApis)
+	}
+	if fileApis == nil {
+		fileApis = make(map[string]uctypes.APIEndpointInfo)
+	}
+
+	// Read secure data from SQLite
+	db, err := getGulintermDB()
+	if err == nil {
+		defer db.Close()
+		EnsureAPIEndpointsSchema(db)
+		rows, err := db.Query(fmt.Sprintf("SELECT id, name, url, COALESCE(username, ''), COALESCE(password, ''), COALESCE(token, ''), created_at, updated_at FROM %s", GulinAPIEndpointsTable))
 		if err == nil {
-			endpoints = append(endpoints, e)
+			defer rows.Close()
+			secureApis := make(map[string]uctypes.APIEndpointInfo)
+			for rows.Next() {
+				var e uctypes.APIEndpointInfo
+				rows.Scan(&e.ID, &e.Name, &e.URL, &e.Username, &e.Password, &e.Token, &e.CreatedAt, &e.UpdatedAt)
+				secureApis[e.Name] = e
+			}
+			
+			// Merge secure data into JSON metadata
+			for name, apiMeta := range fileApis {
+				apiMeta.Name = name
+				if sec, ok := secureApis[name]; ok {
+					apiMeta.ID = sec.ID
+					apiMeta.URL = sec.URL
+					apiMeta.Username = sec.Username
+					apiMeta.Password = sec.Password
+					apiMeta.Token = sec.Token
+					apiMeta.CreatedAt = sec.CreatedAt
+					apiMeta.UpdatedAt = sec.UpdatedAt
+				}
+				endpoints = append(endpoints, apiMeta)
+			}
 		}
 	}
  
@@ -123,6 +144,33 @@ func GulinAIApiRegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save metadata to api-manager.json, stripping sensitive info
+	configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "api-manager.json")
+	fileData, err := os.ReadFile(configPath)
+	var raw map[string]map[string]interface{}
+	if err == nil {
+		json.Unmarshal(fileData, &raw)
+	}
+	if raw == nil {
+		raw = make(map[string]map[string]interface{})
+	}
+	if raw[req.Name] == nil {
+		raw[req.Name] = make(map[string]interface{})
+	}
+	
+	raw[req.Name]["system_prompt"] = req.SystemPrompt
+	raw[req.Name]["knowledge_source"] = req.KnowledgeSource
+	raw[req.Name]["auth_instructions"] = req.AuthInstructions
+
+	// Explicitly delete sensitive info if leaked
+	delete(raw[req.Name], "url")
+	delete(raw[req.Name], "username")
+	delete(raw[req.Name], "password")
+	delete(raw[req.Name], "token")
+
+	newVal, _ := json.MarshalIndent(raw, "", "  ")
+	os.WriteFile(configPath, newVal, 0644)
+
 	fmt.Printf("[API-MANAGER] successfully saved endpoint: %s\n", req.ID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -158,11 +206,28 @@ func GulinAIApiDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
+	var nameToDelete string
+	db.QueryRow(fmt.Sprintf("SELECT name FROM %s WHERE id = ?", GulinAPIEndpointsTable), req.ID).Scan(&nameToDelete)
+
 	_, err = db.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = ?", GulinAPIEndpointsTable), req.ID)
 	if err != nil {
 		fmt.Printf("[API-MANAGER] error executing delete: %v\n", err)
 		http.Error(w, fmt.Sprintf("failed to delete endpoint: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	if nameToDelete != "" {
+		configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "api-manager.json")
+		fileData, err := os.ReadFile(configPath)
+		var raw map[string]map[string]interface{}
+		if err == nil {
+			json.Unmarshal(fileData, &raw)
+			if raw != nil && raw[nameToDelete] != nil {
+				delete(raw, nameToDelete)
+				newVal, _ := json.MarshalIndent(raw, "", "  ")
+				os.WriteFile(configPath, newVal, 0644)
+			}
+		}
 	}
 
 	fmt.Printf("[API-MANAGER] successfully deleted endpoint: %s\n", req.ID)

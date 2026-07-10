@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -273,7 +274,7 @@ func (b *plaiBackend) RunChatStep(
 	}
 
 	// Debug: Guardar el cuerpo de la petición en un archivo para análisis de WAF
-	_ = os.WriteFile("/Users/lordzero1/.gemini/antigravity/scratch/plai_request_debug.json", reqBody, 0644)
+	_ = os.WriteFile(filepath.Join(os.TempDir(), "plai_request_debug.json"), reqBody, 0644)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", chatOpts.Config.Endpoint, bytes.NewBuffer(reqBody))
 	if err != nil {

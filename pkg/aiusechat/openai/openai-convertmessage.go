@@ -474,7 +474,7 @@ func ConvertAIMessageToOpenAIChatMessage(aiMsg uctypes.AIMessage) (*OpenAIChatMe
 	return &OpenAIChatMessage{
 		MessageId: aiMsg.MessageId,
 		Message: &OpenAIMessage{
-			Role:    "user",
+			Role:    aiMsg.Role,
 			Content: contentBlocks,
 		},
 	}, nil
@@ -608,7 +608,16 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 				Parts: fallbackParts,
 			})
 		} else {
-			return nil, fmt.Errorf("message %d: expected *OpenAIChatMessage or *uctypes.AIMessage, got %T", i, nativeMsg)
+			genericMsg := uctypes.ConvertToGenericAIMessage(nativeMsg)
+			if genericMsg != nil {
+				uiMessages = append(uiMessages, uctypes.UIMessage{
+					ID:    genericMsg.MessageId,
+					Role:  genericMsg.Role,
+					Parts: []uctypes.UIMessagePart{{Type: "text", Text: genericMsg.GetContent()}},
+				})
+			} else {
+				return nil, fmt.Errorf("message %d: expected *OpenAIChatMessage or *uctypes.AIMessage, got %T", i, nativeMsg)
+			}
 		}
 	}
 	return &uctypes.UIChat{

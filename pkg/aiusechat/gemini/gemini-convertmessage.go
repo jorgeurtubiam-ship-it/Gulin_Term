@@ -192,7 +192,6 @@ func convertFileAIMessagePart(part uctypes.AIMessagePart) (*GeminiMessagePart, e
 }
 
 // ConvertAIMessageToGeminiChatMessage converts an AIMessage to GeminiChatMessage
-// These messages are ALWAYS role "user"
 func ConvertAIMessageToGeminiChatMessage(aiMsg uctypes.AIMessage) (*GeminiChatMessage, error) {
 	if err := aiMsg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid AIMessage: %w", err)
@@ -224,10 +223,17 @@ func ConvertAIMessageToGeminiChatMessage(aiMsg uctypes.AIMessage) (*GeminiChatMe
 			continue
 		}
 	}
+	
+	role := aiMsg.Role
+	if role == "assistant" {
+		role = "model"
+	} else if role != "model" && role != "system" {
+		role = "user"
+	}
 
 	return &GeminiChatMessage{
 		MessageId: aiMsg.MessageId,
-		Role:      "user",
+		Role:      role,
 		Pinned:    aiMsg.Pinned,
 		Parts:     parts,
 	}, nil
@@ -388,7 +394,16 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 	for i, nativeMsg := range aiChat.NativeMessages {
 		geminiMsg, ok := nativeMsg.(*GeminiChatMessage)
 		if !ok {
-			return nil, fmt.Errorf("message %d: expected *GeminiChatMessage, got %T", i, nativeMsg)
+			genericMsg := uctypes.ConvertToGenericAIMessage(nativeMsg)
+			if genericMsg != nil {
+				uiMessages = append(uiMessages, uctypes.UIMessage{
+					ID:    genericMsg.MessageId,
+					Role:  genericMsg.Role,
+					Parts: []uctypes.UIMessagePart{{Type: "text", Text: genericMsg.GetContent()}},
+				})
+				continue
+			}
+			return nil, fmt.Errorf("message %d: expected *GeminiChatMessage or *uctypes.AIMessage, got %T", i, nativeMsg)
 		}
 		uiMsg := geminiMsg.convertToUIMessage()
 		if uiMsg != nil {

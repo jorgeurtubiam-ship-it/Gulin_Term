@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gulindev/gulin/pkg/gulinbase"
 	"github.com/gulindev/gulin/pkg/wconfig"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -151,11 +152,7 @@ func OpenBrainDBInternal() (*sql.DB, error) {
 
 	// Si no está configurada, usamos la ruta unificada por defecto
 	if dbPath == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("error getting home dir: %w", err)
-		}
-		dbPath = filepath.Join(homeDir, "Library/Application Support/gulin/db/gulin.db")
+		dbPath = filepath.Join(gulinbase.GetGulinDataDir(), "db", "gulin.db")
 	} else {
 		// Expandimos ~ si el usuario lo usó en la configuración
 		if strings.HasPrefix(dbPath, "~") {
@@ -165,7 +162,8 @@ func OpenBrainDBInternal() (*sql.DB, error) {
 	}
 	
 	log.Printf("[brain] Opening database at: %s\n", dbPath)
-	return sql.Open("sqlite3", dbPath)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
+	return sql.Open("sqlite3", dsn)
 }
 
 func InitBrainDB() error {
@@ -193,6 +191,7 @@ func InitBrainDB() error {
 	)`)
 	if err != nil {
 		log.Printf("Error creating infra_nodes table: %v", err)
+		return fmt.Errorf("error creating infra_nodes: %v", err)
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS infra_edges (
@@ -374,10 +373,44 @@ func HandleBrainData(w http.ResponseWriter, r *http.Request) {
 	totalXP := getTotalXP(db)
 	level := calculateLevel(totalXP)
 
-	skills := []SkillData{
-		{Name: "query", Level: level, Description: "Database query proficiency"},
-		{Name: "automation", Level: level, Description: "Infrastructure automation"},
-		{Name: "analysis", Level: level, Description: "Data analysis capability"},
+	skillsDir := gulinbase.GetConfiguredSkillsDir()
+	var skills []SkillData
+	
+	_ = filepath.Walk(skillsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+			name := strings.TrimSuffix(info.Name(), ".md")
+			if name == "SKILL" || name == "README" {
+				name = filepath.Base(filepath.Dir(path))
+			}
+			
+			description := "Skill: " + name
+			if content, err := os.ReadFile(path); err == nil {
+				lines := strings.Split(string(content), "\n")
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "description:") {
+						description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+						break
+					}
+				}
+			}
+
+			skills = append(skills, SkillData{
+				Name:        name,
+				Level:       level,
+				Description: description,
+			})
+		}
+		return nil
+	})
+
+	if len(skills) == 0 {
+		skills = []SkillData{
+			{Name: "No skills found", Level: level, Description: "Check " + skillsDir},
+		}
 	}
 
 	resp := BrainDataResponse{
