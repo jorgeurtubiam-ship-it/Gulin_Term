@@ -49,3 +49,8 @@ bin/
 .DS_Store
 *.log
 scratch/
+
+# Go Binaries
+main-server
+server
+wsh
