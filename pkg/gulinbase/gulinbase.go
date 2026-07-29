@@ -22,6 +22,58 @@ import (
 	"github.com/gulindev/gulin/pkg/util/utilfn"
 )
 
+var gulinConfigCache *GulinConfig
+var gulinConfigMutex sync.Mutex
+
+func loadGulinConfig() *GulinConfig {
+	gulinConfigMutex.Lock()
+	defer gulinConfigMutex.Unlock()
+	if gulinConfigCache != nil {
+		return gulinConfigCache
+	}
+	
+	configDir := ConfigHome_VarCache
+	if configDir == "" {
+		return nil
+	}
+	configPath := filepath.Join(configDir, "gulin.config.json")
+	
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil
+	}
+
+	var config GulinConfig
+	err = json.Unmarshal(content, &config)
+	if err == nil {
+		gulinConfigCache = &config
+		return &config
+	}
+	return nil
+}
+
+func GetConfiguredPath(key string, defaultVal string) string {
+	config := loadGulinConfig()
+	if config == nil {
+		return defaultVal
+	}
+
+	osStr := "linux"
+	if runtime.GOOS == "darwin" {
+		osStr = "darwin"
+	} else if runtime.GOOS == "windows" {
+		osStr = "windows"
+	}
+
+	if rutasOS, ok := config.Rutas[osStr]; ok {
+		if pathVal, ok := rutasOS[key]; ok && pathVal != "" {
+			return ExpandHomeDirSafe(pathVal)
+		}
+	}
+
+	return defaultVal
+}
+
 // set by main-server.go
 var GulinVersion = "0.0.0"
 var BuildTime = "0"
@@ -89,12 +141,12 @@ type FDLock interface {
 }
 
 func CacheAndRemoveEnvVars() error {
-	ConfigHome_VarCache = os.Getenv(GulinConfigHomeEnvVar)
+	ConfigHome_VarCache = ExpandHomeDirSafe(os.Getenv(GulinConfigHomeEnvVar))
 	if ConfigHome_VarCache == "" {
 		return fmt.Errorf(GulinConfigHomeEnvVar + " not set")
 	}
 	os.Unsetenv(GulinConfigHomeEnvVar)
-	DataHome_VarCache = os.Getenv(GulinDataHomeEnvVar)
+	DataHome_VarCache = ExpandHomeDirSafe(os.Getenv(GulinDataHomeEnvVar))
 	if DataHome_VarCache == "" {
 		return fmt.Errorf("%s not set", GulinDataHomeEnvVar)
 	}
@@ -117,7 +169,7 @@ func IsDevMode() bool {
 }
 
 func GetGulinAppPath() string {
-	return AppPath_VarCache
+	return GetConfiguredPath("app_dir", AppPath_VarCache)
 }
 
 func GetGulinAppResourcesPath() string {
@@ -125,15 +177,19 @@ func GetGulinAppResourcesPath() string {
 }
 
 func GetGulinDataDir() string {
-	return DataHome_VarCache
+	return GetConfiguredPath("data_dir", DataHome_VarCache)
 }
 
 func GetGulinConfigDir() string {
-	return ConfigHome_VarCache
+	return GetConfiguredPath("config_dir", ConfigHome_VarCache)
 }
 
 func GetGulinLogsDir() string {
-	return filepath.Join(GetGulinDataDir(), "logs")
+	return GetConfiguredPath("logs_dir", filepath.Join(GetGulinDataDir(), "logs"))
+}
+
+func GetGulinDBDir() string {
+	return GetConfiguredPath("db_dir", filepath.Join(GetGulinDataDir(), GulinDBDir))
 }
 
 func GetGulinAppBinPath() string {
@@ -199,7 +255,7 @@ func EnsureGulinDataDir() error {
 }
 
 func EnsureGulinDBDir() error {
-	return CacheEnsureDir(filepath.Join(GetGulinDataDir(), GulinDBDir), "gulindb", 0700, "gulin db directory")
+	return CacheEnsureDir(GetGulinDBDir(), "gulindb", 0700, "gulin db directory")
 }
 
 func EnsureGulinConfigDir() error {
@@ -211,36 +267,11 @@ type GulinConfig struct {
 }
 
 func GetConfiguredSkillsDir() string {
-	configDir := GetGulinConfigDir()
-	configPath := filepath.Join(configDir, "gulin.config.json")
-	
-	defaultSkillsDir := filepath.Join(filepath.Dir(GetGulinDataDir()), "skills")
+	return GetConfiguredPath("skills_dir", filepath.Join(filepath.Dir(GetGulinDataDir()), "skills"))
+}
 
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		return defaultSkillsDir
-	}
-
-	var config GulinConfig
-	err = json.Unmarshal(content, &config)
-	if err != nil {
-		return defaultSkillsDir
-	}
-
-	osStr := "linux"
-	if runtime.GOOS == "darwin" {
-		osStr = "darwin"
-	} else if runtime.GOOS == "windows" {
-		osStr = "windows"
-	}
-
-	if rutasOS, ok := config.Rutas[osStr]; ok {
-		if skillsDir, ok := rutasOS["skills_dir"]; ok && skillsDir != "" {
-			return ExpandHomeDirSafe(skillsDir)
-		}
-	}
-
-	return defaultSkillsDir
+func GetConfiguredPluginsDir() string {
+	return GetConfiguredPath("plugins_dir", filepath.Join(GetGulinConfigDir(), "plugins"))
 }
 
 func EnsureEmptyConfigFiles() error {
@@ -353,7 +384,7 @@ func resolveGulinCachesDir() string {
 		cacheDir = filepath.Join(tmpDir, appBundle)
 	}
 
-	return cacheDir
+	return GetConfiguredPath("cache_dir", cacheDir)
 }
 
 func GetGulinCachesDir() string {

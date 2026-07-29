@@ -1194,6 +1194,37 @@ declare global {
         blockid: string;
     };
 
+    // wshrpc.MCPMarketplaceItem
+    type MCPMarketplaceItem = {
+        id: string;
+        type: string;
+        name: string;
+        description: string;
+        author: string;
+        price: string;
+        buy_url?: string;
+        command?: string;
+        args?: string[];
+    };
+
+    // wshrpc.MCPServerInfo
+    type MCPServerInfo = {
+        name: string;
+        command: string;
+        args?: string[];
+        env?: {[key: string]: string};
+        description?: string;
+        status?: string;
+        toolcount?: number;
+        errormsg?: string;
+    };
+
+    // wshrpc.MCPToolInfo
+    type MCPToolInfo = {
+        name: string;
+        description: string;
+    };
+
     // gulinobj.MetaTSType
     type MetaType = {
         view?: string;

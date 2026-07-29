@@ -20,16 +20,39 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const prevStatusRef = useRef<string>(status);
+    const rafRef = useRef<number | null>(null);
 
     const scrollToBottom = () => {
         if (virtuosoRef.current) {
             virtuosoRef.current.scrollToIndex({
                 index: "LAST",
                 align: "end",
-                behavior: "smooth",
+                behavior: "auto",
             });
         }
     };
+
+    // Auto-scroll continuo durante streaming
+    useEffect(() => {
+        if (status === "streaming") {
+            const doScroll = () => {
+                scrollToBottom();
+                rafRef.current = requestAnimationFrame(doScroll);
+            };
+            rafRef.current = requestAnimationFrame(doScroll);
+        } else {
+            if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = null;
+            }
+        }
+        return () => {
+            if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = null;
+            }
+        };
+    }, [status]);
 
     useEffect(() => {
         model.registerScrollToBottom(scrollToBottom);

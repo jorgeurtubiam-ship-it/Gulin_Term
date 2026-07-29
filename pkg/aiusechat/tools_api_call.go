@@ -42,8 +42,7 @@ type APICallInput struct {
 
 // listAPIEndpointNames returns all registered API names, for error hints.
 func listAPIEndpointNames() ([]string, error) {
-	dataDir := gulinbase.GetGulinDataDir()
-	dbDir := filepath.Join(dataDir, gulinbase.GulinDBDir)
+	dbDir := gulinbase.GetGulinDBDir()
 	if _, err := os.Stat(dbDir); os.IsNotExist(err) {
 		os.MkdirAll(dbDir, 0755)
 	}
@@ -346,8 +345,7 @@ func GetAPIListToolDefinition() uctypes.ToolDefinition {
 			return "List registered APIs"
 		},
 		ToolAnyCallback: func(ctx context.Context, input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
-			dataDir := gulinbase.GetGulinDataDir()
-			dbPath := filepath.Join(dataDir, gulinbase.GulinDBDir, "gulin.db")
+			dbPath := filepath.Join(gulinbase.GetGulinDBDir(), "gulin.db")
 			dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL", dbPath)
 			db, err := sql.Open("sqlite3", dsn)
 			if err != nil {
@@ -388,8 +386,7 @@ func GetAPIListToolDefinition() uctypes.ToolDefinition {
 }
 
 func getAPIEndpointByName(name string) (*uctypes.APIEndpointInfo, error) {
-	dataDir := gulinbase.GetGulinDataDir()
-	dbDir := filepath.Join(dataDir, gulinbase.GulinDBDir)
+	dbDir := gulinbase.GetGulinDBDir()
 	if _, err := os.Stat(dbDir); os.IsNotExist(err) {
 		os.MkdirAll(dbDir, 0755)
 	}
@@ -576,8 +573,7 @@ func GetAPIRegisterToolDefinition() uctypes.ToolDefinition {
 }
 
 func getAPIContextDB() (*sql.DB, error) {
-	dataDir := gulinbase.GetGulinDataDir()
-	dbDir := filepath.Join(dataDir, gulinbase.GulinDBDir)
+	dbDir := gulinbase.GetGulinDBDir()
 	if _, err := os.Stat(dbDir); os.IsNotExist(err) {
 		os.MkdirAll(dbDir, 0755)
 	}

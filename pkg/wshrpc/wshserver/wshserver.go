@@ -27,6 +27,7 @@ import (
 	"github.com/skratchdot/open-golang/open"
 	"github.com/gulindev/gulin/pkg/aiusechat"
 	"github.com/gulindev/gulin/pkg/aiusechat/chatstore"
+	mcppkg "github.com/gulindev/gulin/pkg/aiusechat/mcp"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/blockcontroller"
 	"github.com/gulindev/gulin/pkg/blocklogger"
@@ -1425,6 +1426,88 @@ func (ws *WshServer) ToolsSaveCommand(ctx context.Context, tool wshrpc.ToolInfo)
 
 func (ws *WshServer) ToolsDeleteCommand(ctx context.Context, name string) error {
 	return aiusechat.DeleteToolAdmin(ctx, name)
+}
+
+func (ws *WshServer) MCPListCommand(ctx context.Context) ([]wshrpc.MCPServerInfo, error) {
+	servers, err := mcppkg.LoadMCPServers()
+	if err != nil {
+		return nil, err
+	}
+	var result []wshrpc.MCPServerInfo
+	for _, s := range servers {
+		result = append(result, wshrpc.MCPServerInfo{
+			Name:        s.Name,
+			Command:     s.Command,
+			Args:        s.Args,
+			Env:         s.Env,
+			Description: s.Description,
+			Status:      "untested",
+		})
+	}
+	return result, nil
+}
+
+func (ws *WshServer) MCPMarketplaceCatalogCommand(ctx context.Context) ([]wshrpc.MCPMarketplaceItem, error) {
+	items, err := mcppkg.GetMarketplaceCatalog()
+	if err != nil {
+		return nil, err
+	}
+	var result []wshrpc.MCPMarketplaceItem
+	for _, item := range items {
+		result = append(result, wshrpc.MCPMarketplaceItem{
+			ID:          item.ID,
+			Type:        item.Type,
+			Name:        item.Name,
+			Description: item.Description,
+			Author:      item.Author,
+			Price:       item.Price,
+			BuyURL:      item.BuyURL,
+			Command:     item.Command,
+			Args:        item.Args,
+		})
+	}
+	return result, nil
+}
+
+func (ws *WshServer) MCPMarketplaceGetReposCommand(ctx context.Context) ([]string, error) {
+	return mcppkg.GetRepositories()
+}
+
+func (ws *WshServer) MCPMarketplaceAddCommand(ctx context.Context, url string) error {
+	return mcppkg.AddRepository(url)
+}
+
+func (ws *WshServer) MCPMarketplaceDeleteCommand(ctx context.Context, url string) error {
+	return mcppkg.DeleteRepository(url)
+}
+
+func (ws *WshServer) MCPAddCommand(ctx context.Context, info wshrpc.MCPServerInfo) error {
+	return mcppkg.SaveMCPServer(mcppkg.MCPServerConfig{
+		Name:        info.Name,
+		Command:     info.Command,
+		Args:        info.Args,
+		Env:         info.Env,
+		Description: info.Description,
+	})
+}
+
+func (ws *WshServer) MCPDeleteCommand(ctx context.Context, name string) error {
+	return mcppkg.DeleteMCPServer(name)
+}
+
+func (ws *WshServer) MCPTestCommand(ctx context.Context, name string) ([]wshrpc.MCPToolInfo, error) {
+	tools, err := mcppkg.TestMCPServer(name)
+	if err != nil {
+		return nil, err
+	}
+	var result []wshrpc.MCPToolInfo
+	for _, t := range tools {
+		result = append(result, wshrpc.MCPToolInfo{
+			Name:        t.Name,
+			Description: t.Description,
+		})
+	}
+	return result, nil
 }
 
 var wshActivityRe = regexp.MustCompile(`^[a-z:#]+$`)

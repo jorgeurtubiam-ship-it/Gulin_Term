@@ -629,35 +629,20 @@ func SyncGulinBridgeModels() error {
 			}
 		}
 
-		if m.Provider == "google" {
-			var override string
-			var found bool
-			// Búsqueda ultra-permisiva: si el ID del modelo contiene alguna de nuestras claves permitidas
-			mIDLower := strings.ToLower(m.ID)
-			for key, val := range googleModelOverrides {
-				if strings.Contains(mIDLower, strings.ToLower(key)) {
-					override = val
-					found = true
-					break
-				}
-			}
+		// Desactivar el filtro restrictivo de Google: aceptar todos
+		displayName = m.Name
+		
+		// Desactivar el filtro de modelos inactivos: permitir todos los que el Bridge envíe como activos
+		_ = inactiveModels
+		_ = googleModelOverrides
 
-			if !found {
-				// Filtrar cualquier otro modelo de Google que no esté en la lista permitida
-				continue
-			}
-			displayName = override
-			displayDescription = "Modelo Google Gemini optimizado"
-		} else {
-			// Para otros proveedores, aplicar el filtrado de modelos inactivos conocido
-			if inactiveModels[m.ID] {
-				continue
-			}
-		}
 
 		caps := []string{"base"}
-		// Habilitar herramientas para proveedores conocidos que las soportan bien vía bridge
-		if m.Provider == "openai" || m.Provider == "anthropic" || m.Provider == "google" || m.Provider == "deepseek" || m.Provider == "auto" || m.Provider == "Auto" {
+		// Asignar herramientas de forma dinámica desde los metadatos del bridge
+		if m.Capabilities != nil && m.Capabilities["tools"] {
+			caps = append(caps, uctypes.AICapabilityTools)
+		} else if m.Provider == "openai" || m.Provider == "anthropic" || m.Provider == "google" || m.Provider == "deepseek" || m.Provider == "auto" || m.Provider == "Auto" {
+			// Fallback: Habilitar herramientas para proveedores conocidos en caso de no tener el metadato
 			caps = append(caps, uctypes.AICapabilityTools)
 		}
 		modeID := fmt.Sprintf("bridge:%s:%s", m.Provider, m.ID)

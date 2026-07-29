@@ -132,11 +132,16 @@ export class GulinTabView extends WebContentsView {
 
     constructor(fullConfig: FullConfigType) {
         console.log("createBareTabView");
+        const webPreferences: any = {
+            preload: path.join(getElectronAppBasePath(), "preload", "index.cjs"),
+            webviewTag: true,
+        };
+        if (isDevVite) {
+            // disable web security in dev mode to allow Vite HMR and module loading
+            webPreferences.webSecurity = false;
+        }
         super({
-            webPreferences: {
-                preload: path.join(getElectronAppBasePath(), "preload", "index.cjs"),
-                webviewTag: true,
-            },
+            webPreferences,
         });
         this.createdTs = Date.now();
         this.isGulinAIOpen = false;
@@ -155,8 +160,36 @@ export class GulinTabView extends WebContentsView {
             this.isGulinReady = true;
         });
         wcIdToGulinTabMap.set(this.webContents.id, this);
+        const startTime = Date.now();
+        this.webContents.on("console-message", (event, level, message, line, sourceId) => {
+            const levelStr = ["verbose","info","warning","error"][level] || "unknown";
+            console.log(`[renderer:${levelStr}] ${message} (at ${sourceId}:${line})`);
+        });
         if (isDevVite) {
-            this.webContents.loadURL(`${process.env.ELECTRON_RENDERER_URL}/index.html`);
+            const rendererUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173';
+            const fullUrl = `${rendererUrl}/index.html`;
+            console.log("DEV MODE: loading URL:", fullUrl);
+            console.log("DEV MODE: ELECTRON_RENDERER_URL env:", process.env.ELECTRON_RENDERER_URL);
+            this.webContents.loadURL(fullUrl).then(() => {
+                console.log("loadURL SUCCESS in", Date.now() - startTime + "ms");
+            }).catch((err) => {
+                console.error("loadURL FAILED:", err);
+            });
+            this.webContents.on("did-finish-load", () => {
+                console.log("[debug] did-finish-load fired");
+                this.webContents.executeJavaScript(`
+                    console.log("[gulin-debug] window loaded, checking React root...");
+                    setTimeout(() => {
+                        const root = document.getElementById("main");
+                        console.log("[gulin-debug] #main element:", root);
+                        console.log("[gulin-debug] #main innerHTML length:", root ? root.innerHTML.length : "N/A");
+                        console.log("[gulin-debug] document.readyState:", document.readyState);
+                    }, 5000);
+                `).catch(e => console.error("[debug] executeJS failed:", e));
+            });
+            this.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+                console.error("[debug] did-fail-load:", errorCode, errorDescription);
+            });
             this.webContents.openDevTools({ mode: 'bottom' });
         } else {
             this.webContents.loadFile(path.join(getElectronAppBasePath(), "frontend", "index.html"));

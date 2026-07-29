@@ -42,8 +42,7 @@ func InitWStore() error {
 }
 
 func GetDBName() string {
-	gulinHome := gulinbase.GetGulinDataDir()
-	return filepath.Join(gulinHome, gulinbase.GulinDBDir, WStoreDBName)
+	return filepath.Join(gulinbase.GetGulinDBDir(), WStoreDBName)
 }
 
 func MakeDB(ctx context.Context) (*sqlx.DB, error) {

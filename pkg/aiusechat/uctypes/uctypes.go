@@ -134,6 +134,8 @@ func (td *ToolDefinition) Clean() *ToolDefinition {
 	rtn := *td
 	rtn.DisplayName = ""
 	rtn.ShortDescription = ""
+	rtn.RequiredCapabilities = nil
+	rtn.Strict = false
 	return &rtn
 }
 

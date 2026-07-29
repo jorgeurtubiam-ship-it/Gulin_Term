@@ -82,6 +82,15 @@ type WshRpcInterface interface {
 	ToolsSaveCommand(ctx context.Context, tool ToolInfo) error
 	ToolsDeleteCommand(ctx context.Context, name string) error
 
+	MCPListCommand(ctx context.Context) ([]MCPServerInfo, error)
+	MCPAddCommand(ctx context.Context, info MCPServerInfo) error
+	MCPDeleteCommand(ctx context.Context, name string) error
+	MCPTestCommand(ctx context.Context, name string) ([]MCPToolInfo, error)
+	MCPMarketplaceCatalogCommand(ctx context.Context) ([]MCPMarketplaceItem, error)
+	MCPMarketplaceGetReposCommand(ctx context.Context) ([]string, error)
+	MCPMarketplaceAddCommand(ctx context.Context, url string) error
+	MCPMarketplaceDeleteCommand(ctx context.Context, url string) error
+
 	ActivityCommand(ctx context.Context, data ActivityUpdate) error
 	RecordTEventCommand(ctx context.Context, data telemetrydata.TEvent) error
 	GetVarCommand(ctx context.Context, data CommandVarData) (*CommandVarResponseData, error)
@@ -254,10 +263,40 @@ type CommandAuthenticateRtnData struct {
 
 type ToolInfo struct {
 	Name        string `json:"name"`
-	Type        string `json:"type"`        // "built-in" or "dynamic"
+	Type        string `json:"type"`        // "built-in", "dynamic", or "mcp"
 	Integration string `json:"integration"` // "background", "terminal", "preview", "dashboard"
 	Description string `json:"description"`
 	Code        string `json:"code"`
+}
+
+// MCPServerInfo represents a configured MCP server for the UI and RPC layer
+type MCPServerInfo struct {
+	Name        string            `json:"name"`
+	Command     string            `json:"command"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Status      string            `json:"status,omitempty"`    // "ok", "error", "untested"
+	ToolCount   int               `json:"toolcount,omitempty"`
+	ErrorMsg    string            `json:"errormsg,omitempty"`
+}
+
+// MCPToolInfo is a tool exposed by an MCP server
+type MCPToolInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type MCPMarketplaceItem struct {
+	ID          string   `json:"id"`
+	Type        string   `json:"type"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Author      string   `json:"author"`
+	Price       string   `json:"price"`
+	BuyURL      string   `json:"buy_url,omitempty"`
+	Command     string   `json:"command,omitempty"`
+	Args        []string `json:"args,omitempty"`
 }
 
 type CommandAuthenticateTokenData struct {

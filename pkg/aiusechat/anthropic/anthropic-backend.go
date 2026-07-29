@@ -344,8 +344,17 @@ func (p *partialJSON) FinalObject() (json.RawMessage, error) {
 	}
 }
 
-// makeThinkingOpts creates thinking options based on level and max tokens
-func makeThinkingOpts(thinkingLevel string, maxTokens int) *anthropicThinkingOpts {
+// makeThinkingOpts creates thinking options based on level, max tokens and model support
+func makeThinkingOpts(model string, thinkingLevel string, maxTokens int) *anthropicThinkingOpts {
+	// Extended thinking is supported by claude-3-7-sonnet and the new Claude 4.5/5 generation
+	if !strings.Contains(model, "3-7-sonnet") &&
+		!strings.Contains(model, "fable-5") &&
+		!strings.Contains(model, "opus-4-8") &&
+		!strings.Contains(model, "sonnet-5") &&
+		!strings.Contains(model, "haiku-4-5") {
+		return nil
+	}
+
 	if thinkingLevel != uctypes.ThinkingLevelMedium && thinkingLevel != uctypes.ThinkingLevelHigh {
 		return nil
 	}
@@ -484,12 +493,22 @@ func RunAnthropicChatStep(
 		historyLimit = 25
 	}
 
-	// Limit to last 3 user turns
+	// Limit to last `historyLimit` actual user turns
 	var anthropicMsgs []anthropicInputMessage
 	numUserMsgs := 0
 	for i := len(tempMsgs) - 1; i >= 0; i-- {
 		if tempMsgs[i].Role == "user" {
-			numUserMsgs++
+			// Check if this is an actual user prompt (has text block) or just tool results
+			isRealUserTurn := false
+			for _, block := range tempMsgs[i].Content {
+				if block.Type == "text" {
+					isRealUserTurn = true
+					break
+				}
+			}
+			if isRealUserTurn {
+				numUserMsgs++
+			}
 		}
 		if numUserMsgs > historyLimit {
 			break
@@ -512,17 +531,20 @@ func RunAnthropicChatStep(
 	}
 
 	// TOOL SANITIZATION: Anthropic is strict about tool_use being followed by tool_result.
-	// We map all present results first.
+	// We map all present results and uses first.
 	toolResultsMap := make(map[string]bool)
+	toolUsesMap := make(map[string]bool)
 	for _, msg := range anthropicMsgs {
 		for _, block := range msg.Content {
 			if block.Type == "tool_result" {
 				toolResultsMap[block.ToolUseID] = true
+			} else if block.Type == "tool_use" {
+				toolUsesMap[block.ID] = true
 			}
 		}
 	}
 
-	// Now sanitize tool_use blocks
+	// Now sanitize tool_use and tool_result blocks
 	for i := range anthropicMsgs {
 		msg := &anthropicMsgs[i]
 		var sanitizedContent []anthropicMessageContentBlock
@@ -532,9 +554,25 @@ func RunAnthropicChatStep(
 					// Drop tool_use if no result is present in history
 					continue
 				}
+			} else if block.Type == "tool_result" {
+				if !toolUsesMap[block.ToolUseID] {
+					// Drop tool_result if no tool_use is present in history
+					continue
+				}
 			}
 			sanitizedContent = append(sanitizedContent, block)
 		}
+		
+		if len(sanitizedContent) == 0 && len(msg.Content) > 0 {
+			// If we dropped all content blocks from this message, add a dummy text block
+			// to avoid sending an empty content array, which causes a 400 Bad Request,
+			// and to preserve the user/assistant role alternation.
+			sanitizedContent = append(sanitizedContent, anthropicMessageContentBlock{
+				Type: "text",
+				Text: "[Contenido truncado por límite de contexto de Gulin]",
+			})
+		}
+		
 		msg.Content = sanitizedContent
 	}
 

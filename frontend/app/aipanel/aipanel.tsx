@@ -300,6 +300,14 @@ const AIPanelComponentInner = memo(() => {
                         item.data.status,
                         item.data.errorContext
                     );
+                } else if (item && item.type === "data-tokenusage" && item.data) {
+                    const reqTotal = item.data.total || 0;
+                    setChatTokens(reqTotal);
+                    setGlobalTokens((prev) => {
+                        const newGlobal = prev + reqTotal;
+                        localStorage.setItem("gulin_global_tokens", newGlobal.toString());
+                        return newGlobal;
+                    });
                 }
             });
         },
@@ -315,14 +323,7 @@ const AIPanelComponentInner = memo(() => {
         model.registerTabModel(tabModel);
     }, [tabModel, model]);
 
-    const approximateTokenCount = useMemo(() => {
-        if (!messages || messages.length === 0) return 0;
-        
-        // Use JSON stringify to account for tool calls, tool results, and other parts
-        // that are not present in the simple m.content field.
-        const textContent = JSON.stringify(messages);
-        return Math.ceil(textContent.length / 4);
-    }, [messages]);
+    const [chatTokens, setChatTokens] = useState(0);
 
     const [globalTokens, setGlobalTokens] = useState(() => {
         return parseInt(localStorage.getItem("gulin_global_tokens") || "0", 10);
@@ -331,42 +332,26 @@ const AIPanelComponentInner = memo(() => {
     const handleResetGlobalTokens = useCallback(() => {
         setGlobalTokens(0);
         localStorage.removeItem("gulin_global_tokens");
-        localStorage.removeItem("gulin_chat_tokens_seen");
     }, []);
 
     useEffect(() => {
         const handleReset = () => {
             setGlobalTokens(0);
         };
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === "gulin_global_tokens") {
+                setGlobalTokens(parseInt(e.newValue || "0", 10));
+            }
+        };
         window.addEventListener("gulin_reset_global_tokens", handleReset);
-        return () => window.removeEventListener("gulin_reset_global_tokens", handleReset);
+        window.addEventListener("storage", handleStorage);
+        return () => {
+            window.removeEventListener("gulin_reset_global_tokens", handleReset);
+            window.removeEventListener("storage", handleStorage);
+        };
     }, []);
 
-    useEffect(() => {
-        const currentChatId = globalStore.get(model.chatId) || "unknown";
-        if (approximateTokenCount === 0) return;
 
-        try {
-            const seenMapStr = localStorage.getItem("gulin_chat_tokens_seen");
-            const seenMap = seenMapStr ? JSON.parse(seenMapStr) : {};
-            const seenForChat = seenMap[currentChatId] || 0;
-
-            if (approximateTokenCount > seenForChat) {
-                const delta = approximateTokenCount - seenForChat;
-                
-                setGlobalTokens(prev => {
-                    const newGlobal = prev + delta;
-                    localStorage.setItem("gulin_global_tokens", newGlobal.toString());
-                    return newGlobal;
-                });
-                
-                seenMap[currentChatId] = approximateTokenCount;
-                localStorage.setItem("gulin_chat_tokens_seen", JSON.stringify(seenMap));
-            }
-        } catch (e) {
-            console.error("Error updating global tokens", e);
-        }
-    }, [approximateTokenCount, model]);
 
     // console.log("AICHAT messages", messages);
     (window as any).aichatmessages = messages;
@@ -659,7 +644,7 @@ const AIPanelComponentInner = memo(() => {
                 ) : (
                     <>
                         <div className="sticky top-0 z-20 bg-zinc-900/95 backdrop-blur-sm px-4 py-2 border-b border-gray-700/30">
-                            <AIModeDropdown tokenCount={approximateTokenCount} globalTokens={globalTokens} onResetGlobalTokens={handleResetGlobalTokens} />
+                            <AIModeDropdown tokenCount={chatTokens} globalTokens={globalTokens} onResetGlobalTokens={handleResetGlobalTokens} />
                         </div>
                         {messages.length === 0 && initialLoadDone ? (
                             <div
@@ -688,9 +673,12 @@ const AIPanelComponentInner = memo(() => {
 AIPanelComponentInner.displayName = "AIPanelInner";
 
 const AIPanelComponent = () => {
+    const model = GulinAIModel.getInstance();
+    const chatId = jotai.useAtomValue(model.chatId);
+
     return (
         <ErrorBoundary>
-            <AIPanelComponentInner />
+            <AIPanelComponentInner key={chatId || "initial"} />
         </ErrorBoundary>
     );
 };

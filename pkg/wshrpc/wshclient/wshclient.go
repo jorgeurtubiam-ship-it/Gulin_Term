@@ -674,6 +674,54 @@ func MakeDraftFromLocalCommand(w *wshutil.WshRpc, data wshrpc.CommandMakeDraftFr
 	return resp, err
 }
 
+// command "mcpadd", wshserver.MCPAddCommand
+func MCPAddCommand(w *wshutil.WshRpc, data wshrpc.MCPServerInfo, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "mcpadd", data, opts)
+	return err
+}
+
+// command "mcpdelete", wshserver.MCPDeleteCommand
+func MCPDeleteCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "mcpdelete", data, opts)
+	return err
+}
+
+// command "mcplist", wshserver.MCPListCommand
+func MCPListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.MCPServerInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.MCPServerInfo](w, "mcplist", nil, opts)
+	return resp, err
+}
+
+// command "mcpmarketplaceadd", wshserver.MCPMarketplaceAddCommand
+func MCPMarketplaceAddCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "mcpmarketplaceadd", data, opts)
+	return err
+}
+
+// command "mcpmarketplacecatalog", wshserver.MCPMarketplaceCatalogCommand
+func MCPMarketplaceCatalogCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.MCPMarketplaceItem, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.MCPMarketplaceItem](w, "mcpmarketplacecatalog", nil, opts)
+	return resp, err
+}
+
+// command "mcpmarketplacedelete", wshserver.MCPMarketplaceDeleteCommand
+func MCPMarketplaceDeleteCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "mcpmarketplacedelete", data, opts)
+	return err
+}
+
+// command "mcpmarketplacegetrepos", wshserver.MCPMarketplaceGetReposCommand
+func MCPMarketplaceGetReposCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]string, error) {
+	resp, err := sendRpcRequestCallHelper[[]string](w, "mcpmarketplacegetrepos", nil, opts)
+	return resp, err
+}
+
+// command "mcptest", wshserver.MCPTestCommand
+func MCPTestCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) ([]wshrpc.MCPToolInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.MCPToolInfo](w, "mcptest", data, opts)
+	return resp, err
+}
+
 // command "message", wshserver.MessageCommand
 func MessageCommand(w *wshutil.WshRpc, data wshrpc.CommandMessageData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "message", data, opts)

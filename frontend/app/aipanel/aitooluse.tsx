@@ -12,6 +12,7 @@ import { GulinUIMessagePart } from "./aitypes";
 import { RestoreBackupModal } from "./restorebackupmodal";
 import { GulinAIModel } from "./gulinai-model";
 import { decodeWAFText } from "./ai-utils";
+import { getSettingsKeyAtom } from "@/app/store/global";
 
 // matches pkg/filebackup/filebackup.go
 const BackupRetentionDays = 5;
@@ -731,6 +732,8 @@ const ActionSummaryBanner = memo(({ parts, isExpanded, onToggle, children }: { p
 ActionSummaryBanner.displayName = "ActionSummaryBanner";
 
 export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasoning }: AIToolUseGroupProps) => {
+    const { t } = useTranslation();
+    const compactMode = useAtomValue(getSettingsKeyAtom("gulin.ai.compact.mode"));
     const [isExpanded, setIsExpanded] = useState(false);
 
     const tooluseParts = parts.filter((p) => p.type === "data-tooluse") as Array<
@@ -865,22 +868,31 @@ export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasonin
         }
     });
 
+    const totalCount = safeToolUseParts.length;
+    const errorCount = safeToolUseParts.filter(p => p.data?.status === "error").length;
+
+    // Modo compacto: solo un inline "🔧 N tools"
+    if (compactMode && !isStreaming && isAllDone) {
+        return (
+            <div className="mt-2 text-xs text-zinc-500 flex items-center gap-1.5">
+                <span>🔧</span>
+                <span>{totalCount} {t("gulin.ai.tool.tools")}</span>
+                {errorCount > 0 && (
+                    <span className="text-red-400">({errorCount} {t("gulin.ai.tool.errors")})</span>
+                )}
+            </div>
+        );
+    }
+
     return (
         <>
-            {!isAllDone ? (
-                renderedItems
-            ) : (
+            {renderedItems}
+            {isAllDone && (
                 <ActionSummaryBanner 
                     parts={tooluseParts} 
                     isExpanded={isExpanded} 
                     onToggle={() => setIsExpanded(!isExpanded)}
-                >
-                    {renderedItems.length > 0 ? (
-                        <div className="space-y-2 pb-2">
-                            {renderedItems}
-                        </div>
-                    ) : undefined}
-                </ActionSummaryBanner>
+                />
             )}
         </>
     );

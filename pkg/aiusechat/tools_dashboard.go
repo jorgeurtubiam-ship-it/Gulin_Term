@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/gulinobj"
@@ -15,16 +16,17 @@ import (
 )
 
 type TermCreateDashboardInput struct {
-	Title string `json:"title"`
-	Type  string `json:"type"` // "bar", "line", etc.
-	Data  any    `json:"data"` // Can be JSON array string or raw array/map
+	Title    string `json:"title"`
+	Type     string `json:"type"` // "bar", "line", etc.
+	Data     any    `json:"data"` // Can be JSON array string or raw array/map
+	FilePath string `json:"file_path"`
 }
 
 func parseCreateDashboardInput(input any) (*TermCreateDashboardInput, error) {
 	result := &TermCreateDashboardInput{}
 
 	if input == nil {
-		return nil, fmt.Errorf("title, type and data are required")
+		return nil, fmt.Errorf("input is required")
 	}
 
 	inputBytes, err := json.Marshal(input)
@@ -41,6 +43,10 @@ func parseCreateDashboardInput(input any) (*TermCreateDashboardInput, error) {
 	}
 	if result.Type == "" {
 		result.Type = "bar"
+	}
+
+	if result.Data == nil && result.FilePath == "" {
+		return nil, fmt.Errorf("either 'data' or 'file_path' must be provided")
 	}
 
 	return result, nil
@@ -65,10 +71,13 @@ func GetCreateDashboardToolDefinition(tabId string) uctypes.ToolDefinition {
 					"description": "Chart type. Default is 'bar'. Use 'grid' for tabular data like database results or excel-like spreadsheets.",
 				},
 				"data": map[string]any{
-					"description": "The data set for the dashboard. Can be a JSON array string OR a direct JSON array/object. For 'grid' type, providing an array of objects is recommended.",
+					"description": "The data set for the dashboard. Can be a JSON array string OR a direct JSON array/object. For 'grid' type, providing an array of objects is recommended. Optional if file_path is provided.",
+				},
+				"file_path": map[string]any{
+					"type":        "string",
+					"description": "Path to a local JSON file containing the dataset (e.g. /path/to/file.json). Use this for large reports/datasets to bypass token limits.",
 				},
 			},
-			"required":             []string{"data"},
 			"additionalProperties": false,
 		},
 		ToolCallDesc: func(input any, output any, toolUseData *uctypes.UIMessageDataToolUse) string {
@@ -82,6 +91,15 @@ func GetCreateDashboardToolDefinition(tabId string) uctypes.ToolDefinition {
 			parsed, err := parseCreateDashboardInput(input)
 			if err != nil {
 				return nil, err
+			}
+
+			// If file_path is provided, read the file contents
+			if parsed.FilePath != "" {
+				fileBytes, err := os.ReadFile(parsed.FilePath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read file at %s: %w", parsed.FilePath, err)
+				}
+				parsed.Data = string(fileBytes)
 			}
 
 			// Normalize data to JSON string for the frontend

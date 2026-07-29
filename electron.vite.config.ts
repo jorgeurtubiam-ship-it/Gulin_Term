@@ -175,7 +175,7 @@ export default defineConfig({
         },
         plugins: [
             tsconfigPaths(),
-            { ...ViteImageOptimizer(), apply: "build" },
+            // { ...ViteImageOptimizer(), apply: "build" }, // TEMPORAL: diagnosticando hang en renderer build
             svgr({
                 svgrOptions: { exportType: "default", ref: true, svgo: false, titleProp: true },
                 include: "**/*.svg",

@@ -4,6 +4,7 @@
 import { useTranslation } from "@/app/store/i18n";
 import { GulinStreamdown } from "@/app/element/streamdown";
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef } from "react";
 import { getFileIcon } from "./ai-utils";
 import { AIFeedbackButtons } from "./aifeedbackbuttons";
@@ -11,6 +12,7 @@ import { AIToolUseGroup } from "./aitooluse";
 import { GulinUIMessage, GulinUIMessagePart } from "./aitypes";
 import { GulinAIModel } from "./gulinai-model";
 import { decodeWAFText } from "./ai-utils";
+import { getSettingsKeyAtom } from "@/app/store/global";
 
 const AIThinking = memo(
     ({
@@ -179,23 +181,37 @@ type MessagePart =
 const groupMessageParts = (parts: GulinUIMessagePart[]): MessagePart[] => {
     const grouped: MessagePart[] = [];
     if (!Array.isArray(parts)) return grouped;
+
     let currentToolGroup: Array<GulinUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> = [];
+    let isInToolBlock = false;
+
+    const flushToolGroup = () => {
+        if (currentToolGroup.length > 0) {
+            grouped.push({ type: "toolgroup", parts: currentToolGroup });
+            currentToolGroup = [];
+        }
+        isInToolBlock = false;
+    };
 
     for (const part of parts) {
         if (!part) continue;
+
         if (part.type === "data-tooluse" || part.type === "data-toolprogress") {
+            // Es tool: agregar al grupo actual
             currentToolGroup.push(part as GulinUIMessagePart & { type: "data-tooluse" | "data-toolprogress" });
+            isInToolBlock = true;
         } else {
-            if (currentToolGroup.length > 0) {
-                grouped.push({ type: "toolgroup", parts: currentToolGroup });
-                currentToolGroup = [];
+            // No es tool: vaciar grupo pendiente y emitir como single
+            if (isInToolBlock) {
+                flushToolGroup();
             }
             grouped.push({ type: "single", part });
         }
     }
 
-    if (currentToolGroup.length > 0) {
-        grouped.push({ type: "toolgroup", parts: currentToolGroup });
+    // Vaciar último grupo si quedó abierto
+    if (isInToolBlock || currentToolGroup.length > 0) {
+        flushToolGroup();
     }
 
     return grouped;
@@ -255,6 +271,8 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
     );
     
     const { t } = useTranslation();
+    const feedbackEnabled = useAtomValue(getSettingsKeyAtom("gulin.ai.feedback.enabled"));
+    const compactMode = useAtomValue(getSettingsKeyAtom("gulin.ai.compact.mode"));
 
     const thinkingData = getThinkingMessage(validParts, isStreaming, message.role, t);
     const groupedParts = groupMessageParts(displayParts);
@@ -300,7 +318,7 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                                 </div>
                             );
                         })}
-                        {thinkingData != null && thinkingData.message && (
+                        {thinkingData != null && thinkingData.message && !compactMode && (
                             <div className="mt-2 pt-2 border-t border-white/5">
                                 <AIThinking 
                                     message={thinkingData.message} 
@@ -309,7 +327,7 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                                 />
                             </div>
                         )}
-                        {message.role === "assistant" && !isStreaming && (
+                        {message.role === "assistant" && !isStreaming && feedbackEnabled && !compactMode && (
                             <div className="mt-2 pt-2 border-t border-white/5 opacity-80">
                                 <AIFeedbackButtons messageText={allText} />
                             </div>

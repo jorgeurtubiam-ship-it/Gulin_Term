@@ -45,7 +45,7 @@ func GetPluginSaveToolDefinition() uctypes.ToolDefinition {
 				filename += ".js"
 			}
 
-			pluginsDir := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName)
+			pluginsDir := gulinbase.GetConfiguredPluginsDir()
 			os.MkdirAll(pluginsDir, 0755)
 
 			path := filepath.Join(pluginsDir, filename)
@@ -70,7 +70,7 @@ func GetPluginListToolDefinition() uctypes.ToolDefinition {
 			"properties": map[string]any{},
 		},
 		ToolAnyCallback: func(ctx context.Context, input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
-			pluginsDir := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName)
+			pluginsDir := gulinbase.GetConfiguredPluginsDir()
 			files, err := os.ReadDir(pluginsDir)
 			if err != nil {
 				return "No plugins found or directory does not exist.", nil
@@ -123,7 +123,7 @@ func GetPluginDeleteToolDefinition() uctypes.ToolDefinition {
 				filename += ".js"
 			}
 
-			pluginsDir := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName)
+			pluginsDir := gulinbase.GetConfiguredPluginsDir()
 			path := filepath.Join(pluginsDir, filename)
 
 			err := os.Remove(path)

@@ -20,8 +20,7 @@ import (
 const GulinAPIEndpointsTable = "gulin_api_endpoints"
 
 func getGulintermDB() (*sql.DB, error) {
-	dataDir := gulinbase.GetGulinDataDir()
-	dbDir := filepath.Join(dataDir, gulinbase.GulinDBDir)
+	dbDir := gulinbase.GetGulinDBDir()
 	if _, err := os.Stat(dbDir); os.IsNotExist(err) {
 		err := os.MkdirAll(dbDir, 0755)
 		if err != nil {

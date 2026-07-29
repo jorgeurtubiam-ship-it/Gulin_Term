@@ -280,6 +280,10 @@ func buildChatHTTPRequest(ctx context.Context, messages []ChatRequestMessage, ch
 	// Apply sliding window to keep the TOTAL context within model limits.
 	sanitizedMessages = limitTotalMessages(sanitizedMessages, contextLimit)
 
+	// Re-sanitize after truncation to repair any broken assistant-tool pairing
+	// caused by limitTotalMessages cutting messages mid-pair.
+	sanitizedMessages = sanitizeOpenAIMessages(sanitizedMessages)
+
 	reqBody := &ChatRequest{
 		Messages: sanitizedMessages,
 		Stream:   !isBridgeReq, // We only force stream if it's NOT a bridge request. Bridge handles SSE wrapping.

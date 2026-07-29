@@ -14,7 +14,7 @@ import (
 )
 
 func GulinAIPluginListHandler(w http.ResponseWriter, r *http.Request) {
-	pluginsDir := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName)
+	pluginsDir := gulinbase.GetConfiguredPluginsDir()
 	files, err := os.ReadDir(pluginsDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -39,7 +39,7 @@ func GulinAIPluginReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName, name)
+	path := filepath.Join(gulinbase.GetConfiguredPluginsDir(), name)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -69,7 +69,7 @@ func GulinAIPluginSaveHandler(w http.ResponseWriter, r *http.Request) {
 		req.Name += ".js"
 	}
 
-	pluginsDir := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName)
+	pluginsDir := gulinbase.GetConfiguredPluginsDir()
 	os.MkdirAll(pluginsDir, 0755)
 
 	path := filepath.Join(pluginsDir, req.Name)
@@ -95,7 +95,7 @@ func GulinAIPluginDeleteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName, req.Name)
+	path := filepath.Join(gulinbase.GetConfiguredPluginsDir(), req.Name)
 	if err := os.Remove(path); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -482,7 +482,7 @@ func RunWebServer(listener net.Listener) {
 	gulinRouter.HandleFunc("/gulin/db-delete", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GulinAIDBDeleteHandler))
 	gulinRouter.HandleFunc("/gulin/db-test", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GulinAIDBTestHandler))
 	gulinRouter.HandleFunc("/gulin/db-save", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GulinAIDBSaveHandler))
-	gulinRouter.HandleFunc("/gulin/oracle-metrics", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GetOracleMetricsHandler))
+	gulinRouter.HandleFunc("/gulin/db-metrics", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GetDBMetricsHandler))
 	gulinRouter.HandleFunc("/gulin/widgets-list", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, WidgetListHandler))
 	gulinRouter.HandleFunc("/gulin/widgets-save", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, WidgetSaveHandler))
 	gulinRouter.HandleFunc("/gulin/widgets-delete", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, WidgetDeleteHandler))
@@ -524,7 +524,6 @@ func RunWebServer(listener net.Listener) {
 	}
 	server := &http.Server{
 		ReadTimeout:    HttpReadTimeout,
-		WriteTimeout:   HttpWriteTimeout,
 		MaxHeaderBytes: HttpMaxHeaderBytes,
 		Handler:        handler,
 	}

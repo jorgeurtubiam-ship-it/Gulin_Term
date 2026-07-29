@@ -163,6 +163,9 @@ func buildAnthropicHTTPRequest(ctx context.Context, msgs []anthropicInputMessage
 			if toolNames[tool.Name] {
 				return
 			}
+			if !tool.HasRequiredCapabilities(opts.Capabilities) {
+				return
+			}
 			finalTools = append(finalTools, *tool.Clean())
 			toolNames[tool.Name] = true
 		}
@@ -176,8 +179,8 @@ func buildAnthropicHTTPRequest(ctx context.Context, msgs []anthropicInputMessage
 		reqBody.Tools = finalTools
 	}
 
-	// Enable extended thinking based on level
-	reqBody.Thinking = makeThinkingOpts(opts.ThinkingLevel, maxTokens)
+	// Enable extended thinking based on level and model support
+	reqBody.Thinking = makeThinkingOpts(opts.Model, opts.ThinkingLevel, maxTokens)
 
 	// pretty print json of anthropicMsgs
 	if jsonStr, err := utilfn.MarshalIndentNoHTMLString(convertedMsgs, "", "  "); err == nil {

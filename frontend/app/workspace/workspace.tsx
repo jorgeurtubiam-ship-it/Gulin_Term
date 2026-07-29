@@ -10,6 +10,7 @@ import { TabContent } from "@/app/tab/tabcontent";
 import { Widgets } from "@/app/workspace/widgets";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { atoms, getApi } from "@/store/global";
+import { GlobalModel } from "@/app/store/global-model";
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef } from "react";
 import {
@@ -24,6 +25,8 @@ const WorkspaceElem = memo(() => {
     const workspaceLayoutModel = WorkspaceLayoutModel.getInstance();
     const tabId = useAtomValue(atoms.staticTabId);
     const ws = useAtomValue(atoms.workspace);
+    const windowData = useAtomValue(GlobalModel.getInstance().windowDataAtom);
+    const isBare = windowData?.meta?.bare === true;
     const initialAiPanelPercentage = workspaceLayoutModel.getAIPanelPercentage(window.innerWidth);
     const panelGroupRef = useRef<ImperativePanelGroupHandle>(null);
     const aiPanelRef = useRef<ImperativePanelHandle>(null);
@@ -53,37 +56,51 @@ const WorkspaceElem = memo(() => {
 
     return (
         <div className="flex flex-col w-full flex-grow overflow-hidden">
-            <TabBar key={ws.oid} workspace={ws} />
+            {!isBare && <TabBar key={ws.oid} workspace={ws} />}
             <div ref={panelContainerRef} className="flex flex-row flex-grow overflow-hidden">
                 <ErrorBoundary key={tabId}>
-                    <PanelGroup
-                        direction="horizontal"
-                        onLayout={workspaceLayoutModel.handlePanelLayout}
-                        ref={panelGroupRef}
-                    >
-                        <Panel
-                            ref={aiPanelRef}
-                            collapsible
-                            defaultSize={initialAiPanelPercentage}
-                            order={1}
-                            className="overflow-hidden"
-                        >
-                            <div ref={aiPanelWrapperRef} className="w-full h-full">
-                                {tabId !== "" && <AIPanel />}
-                            </div>
-                        </Panel>
-                        <PanelResizeHandle className="w-0.5 bg-transparent hover:bg-zinc-500/20 transition-colors" />
-                        <Panel order={2} defaultSize={100 - initialAiPanelPercentage}>
-                            {tabId === "" ? (
+                    {isBare ? (
+                        <div className="w-full h-full flex flex-col relative">
+                            {/* Drag region for bare windows (allows moving the window) */}
+                            <div className="w-full h-8 flex-shrink-0" style={{ WebkitAppRegion: 'drag' } as any}></div>
+                            <div className="w-full flex-grow relative overflow-hidden flex flex-row">
+                                {tabId === "" ? (
                                 <CenteredDiv>No Active Tab</CenteredDiv>
                             ) : (
-                                <div className="flex flex-row h-full">
-                                    <TabContent key={tabId} tabId={tabId} />
-                                    <Widgets />
-                                </div>
+                                <TabContent key={tabId} tabId={tabId} />
                             )}
-                        </Panel>
-                    </PanelGroup>
+                            </div>
+                        </div>
+                    ) : (
+                        <PanelGroup
+                            direction="horizontal"
+                            onLayout={workspaceLayoutModel.handlePanelLayout}
+                            ref={panelGroupRef}
+                        >
+                            <Panel
+                                ref={aiPanelRef}
+                                collapsible
+                                defaultSize={initialAiPanelPercentage}
+                                order={1}
+                                className="overflow-hidden"
+                            >
+                                <div ref={aiPanelWrapperRef} className="w-full h-full">
+                                    {tabId !== "" && <AIPanel />}
+                                </div>
+                            </Panel>
+                            <PanelResizeHandle className="w-0.5 bg-transparent hover:bg-zinc-500/20 transition-colors" />
+                            <Panel order={2} defaultSize={100 - initialAiPanelPercentage}>
+                                {tabId === "" ? (
+                                    <CenteredDiv>No Active Tab</CenteredDiv>
+                                ) : (
+                                    <div className="flex flex-row h-full">
+                                        <TabContent key={tabId} tabId={tabId} />
+                                        <Widgets />
+                                    </div>
+                                )}
+                            </Panel>
+                        </PanelGroup>
+                    )}
                     <ModalsRenderer />
                 </ErrorBoundary>
             </div>

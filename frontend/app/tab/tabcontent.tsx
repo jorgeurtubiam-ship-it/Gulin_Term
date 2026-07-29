@@ -53,8 +53,6 @@ const TabContent = React.memo(({ tabId }: { tabId: string }) => {
         innerContent = <CenteredDiv>Tab Loading</CenteredDiv>;
     } else if (!tabData) {
         innerContent = <CenteredDiv>Tab Not Found</CenteredDiv>;
-    } else if (tabData?.blockids?.length == 0) {
-        innerContent = null;
     } else {
         innerContent = (
             <TileLayout

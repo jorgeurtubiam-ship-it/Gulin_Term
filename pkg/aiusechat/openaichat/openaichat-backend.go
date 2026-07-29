@@ -401,6 +401,27 @@ func processChatStream(
 			}
 			continue
 		}
+		// Detect data-tokenusage format embedded in the SSE stream
+		if strings.Contains(data, "data-tokenusage") {
+			var tokenData struct {
+				Type string `json:"type"`
+				Data struct {
+					Input  int `json:"input"`
+					Output int `json:"output"`
+					Total  int `json:"total"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal([]byte(data), &tokenData); err == nil && tokenData.Type == "data-tokenusage" {
+				finalUsage = &ChatUsage{
+					InputTokens:  tokenData.Data.Input,
+					OutputTokens: tokenData.Data.Output,
+					TotalTokens:  tokenData.Data.Total,
+				}
+				log.Printf("openaichat: Detected token usage from Bridge stream: %v", finalUsage)
+			}
+			continue
+		}
+
 		var chunk StreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			log.Printf("openaichat: failed to parse chunk: %v (raw data: %s)", err, data)
@@ -408,7 +429,11 @@ func processChatStream(
 		}
 
 		if chunk.Usage != nil {
-			finalUsage = chunk.Usage
+			finalUsage = &ChatUsage{
+				InputTokens:  chunk.Usage.InputTokens,
+				OutputTokens: chunk.Usage.OutputTokens,
+				TotalTokens:  chunk.Usage.TotalTokens,
+			}
 		}
 
 		if len(chunk.Choices) == 0 {

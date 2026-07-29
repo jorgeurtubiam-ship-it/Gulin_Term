@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
+	"github.com/gulindev/gulin/pkg/aiusechat/mcp"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/blockcontroller"
 	"github.com/gulindev/gulin/pkg/util/utilfn"
@@ -236,11 +237,24 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 		}
 		// ---------------------------------
 
+		// --- CARGA DE TOOLS MCP ---
+		mcpTools, err := mcp.GetMCPTools(ctx, tabid)
+		if err == nil && len(mcpTools) > 0 {
+			tools = append(tools, mcpTools...)
+		}
+		// --------------------------
+
 		// Herramientas de Gestión de Plugins
 		tools = append(tools, GetPluginSaveToolDefinition())
 		tools = append(tools, GetPluginListToolDefinition())
 		tools = append(tools, GetPluginDeleteToolDefinition())
 		tools = append(tools, GetPluginDebugToolDefinition())
+
+		// Herramientas de Gestión de MCP
+		tools = append(tools, mcp.GetMCPAddServerToolDefinition())
+		tools = append(tools, mcp.GetMCPListServersToolDefinition())
+		tools = append(tools, mcp.GetMCPDeleteServerToolDefinition())
+		tools = append(tools, mcp.GetMCPTestServerToolDefinition())
 	}
 	// Herramientas de Descubrimiento Dinámico (Cualquier proveedor puede usarlas si tiene muchas herramientas)
 	tools = append(tools, GetListAvailableToolsToolDefinition())

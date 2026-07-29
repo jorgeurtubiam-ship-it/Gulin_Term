@@ -50,8 +50,7 @@ func InitFilestore() error {
 }
 
 func GetDBName() string {
-	gulinHome := gulinbase.GetGulinDataDir()
-	return filepath.Join(gulinHome, gulinbase.GulinDBDir, FilestoreDBName)
+	return filepath.Join(gulinbase.GetGulinDBDir(), FilestoreDBName)
 }
 
 func MakeDB(ctx context.Context) (*sqlx.DB, error) {

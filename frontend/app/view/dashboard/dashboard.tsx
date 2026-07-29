@@ -1,7 +1,7 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import React, { memo, useRef, useMemo, useState } from "react";
+import React, { memo, useRef, useMemo, useState, useCallback } from "react";
 import {
     BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
@@ -9,7 +9,6 @@ import { toPng } from 'html-to-image';
 import { useAtomValue } from "jotai";
 import { DashboardViewModel } from "./dashboard-model";
 import { ErrorBoundary } from "@/element/errorboundary";
-import { getGulinObjectAtom, makeORef } from "@/store/wos";
 import { IconButton } from "@/element/iconbutton";
 import { cn } from "@/util/util";
 
@@ -25,8 +24,10 @@ import { cn } from "@/util/util";
  * - Estética Premium con Glassmorphism.
  */
 export const DashboardView = memo(({ model, blockId }: { model: DashboardViewModel, blockId: string }) => {
-    const blockDataAtom = useMemo(() => getGulinObjectAtom<Block>(makeORef("block", blockId)), [blockId]);
-    const blockData = useAtomValue(blockDataAtom);
+    // --- DATOS REACTIVOS DESDE EL VIEWMODEL ---
+    const chartData = useAtomValue(model.dataAtom);
+    const chartTitle = useAtomValue(model.titleAtom);
+    const defaultChartType = useAtomValue(model.chartTypeAtom);
 
     // --- ESTADOS DE INTERACCIÓN BI ---
     const [currentChartType, setCurrentChartType] = useState<string | null>(null);
@@ -35,32 +36,9 @@ export const DashboardView = memo(({ model, blockId }: { model: DashboardViewMod
     const [activeFilter, setActiveFilter] = useState<{ key: string, value: any } | null>(null);
     const [internalMessages, setInternalMessages] = useState<{role: 'user' | 'gulin', text: string}[]>([]);
 
-    // Ref Lock para estabilidad de la data inicial
-    const lockedData = useRef<any[] | null>(null);
-    const lockedTitle = useRef<string | null>(null);
-    const lockedType = useRef<string | null>(null);
     const chartContainerRef = useRef<HTMLDivElement>(null);
 
-    const rawData = blockData?.meta?.["dashboard:data"];
-
-    // Capturar y bloquear la primera ráfaga de datos válida
-    if (!lockedData.current && rawData) {
-        try {
-            const strData = typeof rawData === "string" ? rawData : JSON.stringify(rawData);
-            const parsed = JSON.parse(strData);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-                lockedData.current = parsed;
-                lockedTitle.current = (blockData?.meta?.["dashboard:title"] as string) || "Gulin BI Station";
-                lockedType.current = (blockData?.meta?.["dashboard:type"] as string) || "bar";
-            }
-        } catch (e) {
-            console.error("Dashboard parse error:", e);
-        }
-    }
-
-    const chartData = lockedData.current || [];
-    const chartTitle = lockedTitle.current || "Gulin BI Station";
-    const chartType = currentChartType || (lockedType.current || "bar").toLowerCase();
+    const chartType = (currentChartType || defaultChartType).toLowerCase();
 
     // --- LÓGICA DE INTELIGENCIA DE NEGOCIO (KPIs) ---
     const kpis = useMemo(() => {
@@ -110,39 +88,86 @@ export const DashboardView = memo(({ model, blockId }: { model: DashboardViewMod
         a.click();
     };
 
-    const handleChatSubmit = (e: React.FormEvent) => {
+    // --- Llamada a la IA real para Data-Chat ---
+    const handleChatSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         const text = chatInput.trim();
         if (!text) return;
-        
-        // 1. Añadir mensaje del usuario a la historia interna
+
         setInternalMessages(prev => [...prev, { role: 'user', text }]);
         setChatInput("");
 
-        // 2. Lógica de "Inteligencia Local" (Filtros automáticos)
-        const lowerText = text.toLowerCase();
-        if (lowerText.includes("alta") || lowerText.includes("crítico") || lowerText.includes("urgente")) {
-            // Intentamos encontrar una columna de estatus o prioridad
-            const statusKey = Object.keys(chartData[0] || {}).find(k => k.toLowerCase().includes("estatus") || k.toLowerCase().includes("estado"));
-            if (statusKey) {
-                setActiveFilter({ key: statusKey, value: "EXPIRADO (Oct 2023)" }); // Ejemplo basado en tu data
-                setInternalMessages(prev => [...prev, { role: 'gulin', text: "Entendido. He filtrado el dashboard para mostrar solo los elementos críticos." }]);
-                setCurrentChartType("grid");
-                return;
+        // Añadir placeholder de "pensando"
+        setInternalMessages(prev => [...prev, { role: 'gulin', text: "..." }]);
+
+        try {
+            // Construir contexto: datos actuales + filtros activos
+            const context = {
+                data: chartData.slice(0, 100), // limitar contexto
+                activeFilter: activeFilter,
+                currentChartType: chartType,
+                columns: chartData.length > 0 ? Object.keys(chartData[0]) : []
+            };
+
+            // Usar wshclient para enviar consulta al agente de datos
+            // Si GulinAIAgentChatHandler no está disponible, hacer RPC directo
+            let responseText = "";
+            try {
+                const { RpcApi } = await import("@/app/store/wshclientapi");
+                const { TabRpcClient } = await import("@/app/store/wshrpcutil");
+
+                const result = await RpcApi.GulinAIAgentChatCommand(TabRpcClient, {
+                    agent: "data-chat",
+                    message: text,
+                    context: JSON.stringify(context),
+                });
+                responseText = result?.response || "No pude procesar esa solicitud.";
+            } catch {
+                // Fallback: parseo local simple
+                const lowerText = text.toLowerCase();
+                if (lowerText.includes("limpia") || lowerText.includes("todos") || lowerText.includes("reset")) {
+                    setActiveFilter(null);
+                    responseText = "Filtros eliminados. Mostrando todos los datos.";
+                } else if (lowerText.includes("grid") || lowerText.includes("tabla")) {
+                    setCurrentChartType("grid");
+                    responseText = "Cambiado a vista de tabla.";
+                } else if (lowerText.includes("barra") || lowerText.includes("bar")) {
+                    setCurrentChartType("bar");
+                    responseText = "Cambiado a gráfico de barras.";
+                } else if (lowerText.includes("línea") || lowerText.includes("linea") || lowerText.includes("line")) {
+                    setCurrentChartType("line");
+                    responseText = "Cambiado a gráfico de líneas.";
+                } else if (lowerText.includes("torta") || lowerText.includes("pie") || lowerText.includes("circular")) {
+                    setCurrentChartType("pie");
+                    responseText = "Cambiado a gráfico de torta.";
+                } else {
+                    responseText = "No entendí la solicitud. Puedes decir: 'muestra tabla', 'cambia a barras', 'limpia filtros'.";
+                }
             }
-        }
 
-        if (lowerText.includes("limpia") || lowerText.includes("todos")) {
-            setActiveFilter(null);
-            setInternalMessages(prev => [...prev, { role: 'gulin', text: "Filtros eliminados. Mostrando todos los datos." }]);
-            return;
+            // Reemplazar placeholder con respuesta real
+            setInternalMessages(prev => {
+                const msgs = [...prev];
+                // Quitar el placeholder
+                const lastIdx = msgs.length - 1;
+                if (msgs[lastIdx]?.text === "...") {
+                    msgs[lastIdx] = { role: 'gulin', text: responseText };
+                } else {
+                    msgs.push({ role: 'gulin', text: responseText });
+                }
+                return msgs;
+            });
+        } catch (err) {
+            setInternalMessages(prev => {
+                const msgs = [...prev];
+                const lastIdx = msgs.length - 1;
+                if (msgs[lastIdx]?.text === "...") {
+                    msgs[lastIdx] = { role: 'gulin', text: "Error al conectar con la IA. Intenta de nuevo." };
+                }
+                return msgs;
+            });
         }
-
-        // 3. Simulación de respuesta de análisis si no es un filtro conocido
-        setTimeout(() => {
-            setInternalMessages(prev => [...prev, { role: 'gulin', text: "Estoy analizando esa solicitud. Por ahora puedo ayudarte a filtrar por estados o limpiar las vistas." }]);
-        }, 600);
-    };
+    }, [chatInput, chartData, activeFilter, chartType]);
 
     const renderChart = () => {
         if (chartData.length === 0) {
@@ -155,7 +180,7 @@ export const DashboardView = memo(({ model, blockId }: { model: DashboardViewMod
         }
 
         if (chartType === "grid") {
-            const ROW_LIMIT = 500;
+            const ROW_LIMIT = 5000;
             const allKeys = Array.from(new Set(chartData.flatMap(item => Object.keys(item))));
             
             // Aplicar filtro si existe

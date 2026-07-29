@@ -2,11 +2,13 @@ package aiusechat
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/gulindev/gulin/pkg/aiusechat/mcp"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/gulinbase"
 	"github.com/gulindev/gulin/pkg/wshrpc"
@@ -29,8 +31,6 @@ func GetAllToolsAdmin(ctx context.Context) ([]wshrpc.ToolInfo, error) {
 	defs = append(defs, GetPluginDebugToolDefinition())
 
 	// Read config if we have overrides for integration
-	configDir := gulinbase.GetGulinConfigDir()
-	
 	for _, d := range defs {
 		allTools = append(allTools, wshrpc.ToolInfo{
 			Name:        d.Name,
@@ -42,7 +42,7 @@ func GetAllToolsAdmin(ctx context.Context) ([]wshrpc.ToolInfo, error) {
 	}
 
 	// Read dynamic plugins
-	pluginsDir := filepath.Join(configDir, PluginsDirName)
+	pluginsDir := gulinbase.GetConfiguredPluginsDir()
 	files, err := os.ReadDir(pluginsDir)
 	if err == nil {
 		for _, f := range files {
@@ -74,14 +74,27 @@ func GetAllToolsAdmin(ctx context.Context) ([]wshrpc.ToolInfo, error) {
 		}
 	}
 
+	// Read MCP server configs — ~/.gulin/mcp/*.json
+	mcpServers, err := mcp.LoadMCPServers()
+	if err == nil {
+		for _, srv := range mcpServers {
+			rawBytes, _ := json.MarshalIndent(srv, "", "  ")
+			allTools = append(allTools, wshrpc.ToolInfo{
+				Name:        srv.Name,
+				Type:        "mcp",
+				Integration: "background",
+				Description: srv.Description,
+				Code:        string(rawBytes),
+			})
+		}
+	}
+
 	return allTools, nil
 }
 
 func SaveToolAdmin(ctx context.Context, tool wshrpc.ToolInfo) error {
-	configDir := gulinbase.GetGulinConfigDir()
-	
 	if tool.Type == "dynamic" {
-		pluginsDir := filepath.Join(configDir, PluginsDirName)
+		pluginsDir := gulinbase.GetConfiguredPluginsDir()
 		os.MkdirAll(pluginsDir, 0755)
 		
 		filename := tool.Name
@@ -98,8 +111,7 @@ func SaveToolAdmin(ctx context.Context, tool wshrpc.ToolInfo) error {
 }
 
 func DeleteToolAdmin(ctx context.Context, name string) error {
-	configDir := gulinbase.GetGulinConfigDir()
-	pluginsDir := filepath.Join(configDir, PluginsDirName)
+	pluginsDir := gulinbase.GetConfiguredPluginsDir()
 	
 	filename := name
 	if !strings.HasSuffix(filename, ".js") {

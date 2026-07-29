@@ -43,6 +43,12 @@ export function blockViewToIcon(view: string): string {
     if (view == "tools-admin") {
         return "wrench";
     }
+    if (view == "sql-flow") {
+        return "diagram-project";
+    }
+    if (view == "dashboard") {
+        return "chart-pie";
+    }
     return "square";
 }
 
@@ -79,6 +85,12 @@ export function blockViewToName(view: string): string {
     }
     if (view == "tools-admin") {
         return "Tools Admin";
+    }
+    if (view == "sql-flow") {
+        return "SQL Flow";
+    }
+    if (view == "dashboard") {
+        return "Dashboard";
     }
     return view;
 }

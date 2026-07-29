@@ -327,16 +327,12 @@ export class GulinAIModel {
             data: { "gulinai:chatid": chatId },
         });
 
-        try {
-            const messages = await this.reloadChatFromBackend(chatId);
-            this.useChatSetMessages?.(messages);
-        } catch (error) {
-            console.error("Failed to switch chat:", error);
-            this.setError("Failed to load chat history.");
-        } finally {
-            globalStore.set(this.isLoadingChatAtom, false);
-            this.toggleSidebar(false);
-        }
+        // The component will remount via the dynamic key and loadInitialChat will handle the rest
+        // Send a signal that chat has changed (UI will remount with new key)
+        // Removed: direct setMessages call - handled by component remount
+
+        globalStore.set(this.isLoadingChatAtom, false);
+        this.toggleSidebar(false);
     }
 
     async deleteChat(chatId: string) {
@@ -802,6 +798,9 @@ export class GulinAIModel {
         globalStore.set(this.isChatEmptyAtom, false);
         globalStore.set(this.inputAtom, "");
         this.clearFiles();
+
+        // Refrescar la lista de chats en la sidebar tras enviar un mensaje
+        this.loadChatSummaries();
     }
 
     setTokenMode(mode: "mini" | "balanced" | "max") {

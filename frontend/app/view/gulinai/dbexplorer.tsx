@@ -6,6 +6,8 @@ import * as jotai from "jotai";
 import { BlockNodeModel } from "@/app/block/blocktypes";
 import { TabModel } from "@/app/store/tab-model";
 import { WOS, globalStore } from "@/store/global";
+import { uxCloseBlock } from "@/app/store/keymodel";
+import { WindowService } from "@/app/store/services";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import clsx from "clsx";
 import { getGulinObjectAtom, makeORef } from "@/store/wos";
@@ -66,7 +68,7 @@ function DBExplorerView({ model, blockId }: { model: DBExplorerViewModel, blockI
                     <thead className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur shadow-sm">
                         <tr>
                             {keys.map(key => (
-                                <th key={key} className="px-4 py-3 text-[10px] font-bold text-blue-400 uppercase tracking-widest border-b border-zinc-800">
+                                <th key={key} className="px-4 py-3 text-sm font-bold text-blue-400 uppercase tracking-widest border-b border-zinc-800">
                                     {key}
                                 </th>
                             ))}
@@ -76,7 +78,7 @@ function DBExplorerView({ model, blockId }: { model: DBExplorerViewModel, blockI
                         {data.map((row: any, i: number) => (
                             <tr key={i} className="hover:bg-blue-500/5 transition-colors group">
                                 {keys.map(key => (
-                                    <td key={key} className="px-4 py-2.5 text-xs text-zinc-300 font-mono group-hover:text-zinc-100">
+                                    <td key={key} className="px-4 py-3 text-base text-zinc-300 font-mono group-hover:text-zinc-100">
                                         {String(row[key] ?? "-")}
                                     </td>
                                 ))}
@@ -98,21 +100,33 @@ function DBExplorerView({ model, blockId }: { model: DBExplorerViewModel, blockI
                             {title}
                         </h2>
                         <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Conexión:</span>
-                            <span className="text-[10px] font-bold text-blue-400/80 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                            <span className="text-sm font-bold text-zinc-500 uppercase tracking-widest">Conexión:</span>
+                            <span className="text-sm font-bold text-blue-400/80 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
                                 {connName}
                             </span>
                         </div>
                     </div>
+                    <button 
+                        onClick={() => {
+                            if (blockData) {
+                                WindowService.PopOutBlockDefToNewWindow({ meta: blockData.meta });
+                                uxCloseBlock(blockId);
+                            }
+                        }}
+                        className="bg-zinc-800/80 hover:bg-purple-500/20 text-purple-400 px-3 py-1.5 rounded-md text-sm font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-purple-500/20 hover:border-purple-500/40"
+                    >
+                        <i className="fa fa-external-link"></i>
+                        Expandir
+                    </button>
                 </header>
 
                 {renderContent()}
 
                 <footer className="mt-4 pt-4 border-t border-zinc-900 flex justify-between items-center shrink-0">
-                    <span className="text-[9px] text-zinc-600 font-mono uppercase">
+                    <span className="text-sm text-zinc-600 font-mono uppercase">
                         Gulin DB Engine v1.0
                     </span>
-                    <span className="text-[9px] text-zinc-600 font-mono">
+                    <span className="text-sm text-zinc-600 font-mono">
                         {data.length} registros encontrados
                     </span>
                 </footer>

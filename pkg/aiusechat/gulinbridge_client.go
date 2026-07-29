@@ -56,9 +56,10 @@ type GulinBridgeDashboardResponse struct {
 }
 
 type OpenAIModel struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	OwnedBy string `json:"owned_by"`
+	ID             string   `json:"id"`
+	Object         string   `json:"object"`
+	OwnedBy        string   `json:"owned_by"`
+	AICapabilities []string `json:"ai:capabilities,omitempty"`
 }
 
 type OpenAIModelsResponse struct {
@@ -179,11 +180,17 @@ func (c *GulinBridgeClient) DiscoverModelsByProxy(token string) ([]GulinBridgeMo
 	// Convertir formato OpenAI al formato interno GulinBridgeModel
 	var models []GulinBridgeModel
 	for _, m := range openAIResp.Data {
+		caps := make(map[string]bool)
+		for _, cap := range m.AICapabilities {
+			caps[cap] = true
+		}
+		
 		models = append(models, GulinBridgeModel{
-			ID:        m.ID,
-			Provider:  m.OwnedBy, // En el Bridge, owned_by suele contener el proveedor (openai, anthropic, etc.)
-			Name:      m.ID,      // Usamos el ID como nombre si no hay otro
-			Available: true,
+			ID:           m.ID,
+			Provider:     m.OwnedBy, // En el Bridge, owned_by suele contener el proveedor (openai, anthropic, etc.)
+			Name:         m.ID,      // Usamos el ID como nombre si no hay otro
+			Available:    true,
+			Capabilities: caps,
 		})
 	}
 

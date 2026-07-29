@@ -1,0 +1,296 @@
+// Copyright 2025, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+.sqlflow-view {
+    width: 100%;
+    height: 100%;
+    background: #09090b;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: var(--font-family), sans-serif;
+}
+
+.sqlflow-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid #27272a;
+    background: rgba(9, 9, 11, 0.8);
+    backdrop-filter: blur(8px);
+    flex-shrink: 0;
+    gap: 12px;
+    min-height: 48px;
+}
+
+.sqlflow-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.sqlflow-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+}
+
+.sqlflow-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sqlflow-subtitle {
+    font-size: 10px;
+    color: #71717a;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+
+.sqlflow-dialect-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: 5px;
+    padding: 2px 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+}
+
+.sqlflow-canvas {
+    flex: 1;
+    position: relative;
+}
+
+// ── React Flow custom node styles ──
+.sqlflow-node {
+    background: #111113;
+    border: 1px solid #3f3f46;
+    border-radius: 10px;
+    min-width: 140px;
+    max-width: 220px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+
+    &:hover {
+        box-shadow: 0 6px 28px rgba(0, 0, 0, 0.6);
+    }
+
+    .sqlflow-node-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid #27272a;
+
+        .sqlflow-node-icon {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 9px;
+        }
+
+        .sqlflow-node-type {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            opacity: 0.6;
+        }
+    }
+
+    .sqlflow-node-label {
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #fff;
+        font-family: var(--font-family-mono), monospace;
+        letter-spacing: -0.01em;
+        word-break: break-word;
+    }
+
+    .sqlflow-node-details {
+        padding: 0 12px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        .sqlflow-node-detail {
+            font-size: 9px;
+            color: #71717a;
+            font-family: var(--font-family-mono), monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
+    // Type-specific accent colors (left border)
+    &.type-TABLE {
+        border-left: 3px solid #3b82f6;
+        .sqlflow-node-header { background: rgba(59, 130, 246, 0.06); }
+        .sqlflow-node-icon { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .sqlflow-node-type { color: #60a5fa; }
+    }
+    &.type-JOIN {
+        border-left: 3px solid #ec4899;
+        .sqlflow-node-header { background: rgba(236, 72, 153, 0.06); }
+        .sqlflow-node-icon { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+        .sqlflow-node-type { color: #f472b6; }
+    }
+    &.type-FILTER {
+        border-left: 3px solid #a855f7;
+        .sqlflow-node-header { background: rgba(168, 85, 247, 0.06); }
+        .sqlflow-node-icon { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+        .sqlflow-node-type { color: #c084fc; }
+    }
+    &.type-AGGREGATE {
+        border-left: 3px solid #f59e0b;
+        .sqlflow-node-header { background: rgba(245, 158, 11, 0.06); }
+        .sqlflow-node-icon { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .sqlflow-node-type { color: #fbbf24; }
+    }
+    &.type-WINDOW {
+        border-left: 3px solid #ec4899;
+        .sqlflow-node-header { background: rgba(236, 72, 153, 0.06); }
+        .sqlflow-node-icon { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+        .sqlflow-node-type { color: #f472b6; }
+    }
+    &.type-CTE {
+        border-left: 3px solid #8b5cf6;
+        .sqlflow-node-header { background: rgba(139, 92, 246, 0.06); }
+        .sqlflow-node-icon { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .sqlflow-node-type { color: #a78bfa; }
+    }
+    &.type-SUBQUERY {
+        border-left: 3px solid #6366f1;
+        .sqlflow-node-header { background: rgba(99, 102, 241, 0.06); }
+        .sqlflow-node-icon { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+        .sqlflow-node-type { color: #818cf8; }
+    }
+    &.type-SORT {
+        border-left: 3px solid #84cc16;
+        .sqlflow-node-header { background: rgba(132, 204, 22, 0.06); }
+        .sqlflow-node-icon { background: rgba(132, 204, 22, 0.15); color: #a3e635; }
+        .sqlflow-node-type { color: #a3e635; }
+    }
+    &.type-LIMIT {
+        border-left: 3px solid #06b6d4;
+        .sqlflow-node-header { background: rgba(6, 182, 212, 0.06); }
+        .sqlflow-node-icon { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
+        .sqlflow-node-type { color: #22d3ee; }
+    }
+    &.type-RESULT {
+        border-left: 3px solid #22c55e;
+        border-color: #22c55e;
+        box-shadow: 0 0 20px rgba(34, 197, 94, 0.15);
+        .sqlflow-node-header { background: rgba(34, 197, 94, 0.08); }
+        .sqlflow-node-icon { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        .sqlflow-node-type { color: #4ade80; }
+    }
+}
+
+// ── Error & Empty states ──
+.sqlflow-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: #3f3f46;
+
+    .sqlflow-empty-icon {
+        font-size: 48px;
+        opacity: 0.15;
+    }
+
+    .sqlflow-empty-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #52525b;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+    }
+
+    .sqlflow-empty-hint {
+        font-size: 11px;
+        color: #3f3f46;
+        font-family: var(--font-family-mono), monospace;
+    }
+}
+
+.sqlflow-error-banner {
+    margin: 12px 16px;
+    padding: 10px 14px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px;
+    font-size: 11px;
+    color: #f87171;
+    font-family: var(--font-family-mono), monospace;
+    flex-shrink: 0;
+}
+
+// ── Legend ──
+.sqlflow-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    border-top: 1px solid #18181b;
+    background: rgba(9, 9, 11, 0.6);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+
+    .sqlflow-legend-label {
+        font-size: 9px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #3f3f46;
+        margin-right: 4px;
+    }
+
+    .sqlflow-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 9px;
+        font-weight: 600;
+        color: #71717a;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+
+        .sqlflow-legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+    }
+}

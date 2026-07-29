@@ -489,6 +489,10 @@ func HandleBrainStats(w http.ResponseWriter, r *http.Request) {
 
 // InternalRecordXP records XP directly without HTTP call
 func InternalRecordXP(action string, source string, xpGained int) (*XPPostResponse, error) {
+	if err := InitBrainDB(); err != nil {
+		log.Printf("[xp] failed to initialize brain DB: %v", err)
+	}
+
 	if xpGained <= 0 {
 		xpGained = xpRules[action]
 		if xpGained <= 0 {

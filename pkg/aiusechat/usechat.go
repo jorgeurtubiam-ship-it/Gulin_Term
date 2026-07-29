@@ -314,6 +314,9 @@ func processToolCall(ctx context.Context, backend UseChatBackend, toolCall uctyp
 	}
 
 	if toolDef != nil && toolDef.ToolLogName != "" {
+		if metrics.ToolDetail == nil {
+			metrics.ToolDetail = make(map[string]int)
+		}
 		metrics.ToolDetail[toolDef.ToolLogName]++
 	}
 
@@ -539,6 +542,12 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				chatOpts.PlatformInfo = platformInfo
 			}
 		}
+
+		if strings.HasSuffix(chatOpts.Config.AIMode, "@plan") {
+			chatOpts.Tools = nil
+			chatOpts.TabTools = nil
+		}
+
 		sse.SendDebugLog(ctx, sse.LogCatAI, fmt.Sprintf("Iniciando solicitud a %s (Modelo: %s)...", chatOpts.Config.APIType, chatOpts.Config.Model))
 		stopReason, rtnMessages, err := runAIChatStep(ctx, sseHandler, backend, chatOpts, cont)
 		if err == nil {
@@ -795,8 +804,8 @@ func GulinAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, m
 		log.Printf("GulinAI call metrics: requests=%d tools=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
 			metrics.RequestCount, metrics.ToolUseCount, metrics.PremiumReqCount, metrics.ProxyReqCount,
 			metrics.ImageCount, metrics.PDFCount, metrics.TextDocCount, metrics.TextLen, metrics.RequestDuration, metrics.HadError)
-
 		sendAIMetricsTelemetry(ctx, metrics)
+		sseHandler.AiMsgTokenUsage(metrics.Usage.InputTokens, metrics.Usage.OutputTokens, metrics.Usage.InputTokens+metrics.Usage.OutputTokens)
 	}
 	return err
 }
@@ -1072,9 +1081,72 @@ func GulinAIDBSchemaHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	case "mssql", "sqlserver", "azure-sql":
 		if filterType == "" {
-			query = "SELECT 'TABLE' as type, count(*) FROM sys.tables"
+			query = `
+				SELECT 'DATABASE' as type, count(*) FROM sys.databases
+				UNION ALL
+				SELECT 'TABLE' as type, count(*) FROM sys.tables
+				UNION ALL
+				SELECT 'VIEW' as type, count(*) FROM sys.views
+				UNION ALL
+				SELECT 'PROCEDURE' as type, count(*) FROM sys.procedures
+				UNION ALL
+				SELECT 'FUNCTION' as type, count(*) FROM sys.objects WHERE type IN ('FN', 'IF', 'TF')
+				UNION ALL
+				SELECT 'TRIGGER' as type, count(*) FROM sys.triggers
+				UNION ALL
+				SELECT 'INDEX' as type, count(*) FROM sys.indexes WHERE type > 0 AND name IS NOT NULL
+				UNION ALL
+				SELECT 'SYNONYM' as type, count(*) FROM sys.synonyms
+				UNION ALL
+				SELECT 'SEQUENCE' as type, count(*) FROM sys.sequences
+				UNION ALL
+				SELECT 'USER' as type, count(*) FROM sys.database_principals WHERE type IN ('S', 'U', 'G')
+				UNION ALL
+				SELECT 'ROLE' as type, count(*) FROM sys.database_principals WHERE type = 'R'
+				UNION ALL
+				SELECT 'SCHEMA' as type, count(*) FROM sys.schemas
+				UNION ALL
+				SELECT 'TYPE' as type, count(*) FROM sys.types WHERE is_user_defined = 1
+				UNION ALL
+				SELECT 'ASSEMBLY' as type, count(*) FROM sys.assemblies
+				UNION ALL
+				SELECT 'ENDPOINT' as type, count(*) FROM sys.endpoints
+				UNION ALL
+				SELECT 'LINKED_SERVER' as type, count(*) FROM sys.servers WHERE is_linked = 1`
 		} else {
-			query = "SELECT name FROM sys.tables ORDER BY name"
+			if filterType == "DATABASE" {
+				query = "SELECT name FROM sys.databases ORDER BY name"
+			} else if filterType == "TABLE" {
+				query = "SELECT name FROM sys.tables ORDER BY name"
+			} else if filterType == "VIEW" {
+				query = "SELECT name FROM sys.views ORDER BY name"
+			} else if filterType == "PROCEDURE" {
+				query = "SELECT name FROM sys.procedures ORDER BY name"
+			} else if filterType == "FUNCTION" {
+				query = "SELECT name FROM sys.objects WHERE type IN ('FN', 'IF', 'TF') ORDER BY name"
+			} else if filterType == "TRIGGER" {
+				query = "SELECT name FROM sys.triggers ORDER BY name"
+			} else if filterType == "INDEX" {
+				query = "SELECT name FROM sys.indexes WHERE type > 0 AND name IS NOT NULL ORDER BY name"
+			} else if filterType == "SYNONYM" {
+				query = "SELECT name FROM sys.synonyms ORDER BY name"
+			} else if filterType == "SEQUENCE" {
+				query = "SELECT name FROM sys.sequences ORDER BY name"
+			} else if filterType == "USER" {
+				query = "SELECT name FROM sys.database_principals WHERE type IN ('S', 'U', 'G') ORDER BY name"
+			} else if filterType == "ROLE" {
+				query = "SELECT name FROM sys.database_principals WHERE type = 'R' ORDER BY name"
+			} else if filterType == "SCHEMA" {
+				query = "SELECT name FROM sys.schemas ORDER BY name"
+			} else if filterType == "TYPE" {
+				query = "SELECT name FROM sys.types WHERE is_user_defined = 1 ORDER BY name"
+			} else if filterType == "ASSEMBLY" {
+				query = "SELECT name FROM sys.assemblies ORDER BY name"
+			} else if filterType == "ENDPOINT" {
+				query = "SELECT name FROM sys.endpoints ORDER BY name"
+			} else if filterType == "LINKED_SERVER" {
+				query = "SELECT name FROM sys.servers WHERE is_linked = 1 ORDER BY name"
+			}
 		}
 	case "oracle":
 		if owner == "" {
@@ -1274,6 +1346,20 @@ func GulinAIDBListHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]any{})
 		return
+	}
+
+	// Merge secure URLs from secretstore so the UI can display them for editing
+	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
+	if exists && val != "" {
+		secureConns := make(map[string]string)
+		if err := json.Unmarshal([]byte(val), &secureConns); err == nil {
+			for k, url := range secureConns {
+				if conn, ok := connections[k]; ok {
+					conn.URL = url
+					connections[k] = conn
+				}
+			}
+		}
 	}
 
 	var result []DBConnectionInfo
@@ -1549,6 +1635,7 @@ func RunAIChatWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, chatOpts u
 	metrics, err := RunAIChat(ctx, sseHandler, backend, chatOpts)
 	if metrics != nil {
 		sendAIMetricsTelemetry(ctx, metrics)
+		sseHandler.AiMsgTokenUsage(metrics.Usage.InputTokens, metrics.Usage.OutputTokens, metrics.Usage.InputTokens+metrics.Usage.OutputTokens)
 	}
 	return err
 }
@@ -1716,10 +1803,13 @@ func runExpertSubChat(ctx context.Context, backend UseChatBackend, chatOpts ucty
 	expertOpts := chatOpts
 	expertOpts.ChatId = expertSubChatId
 	expertOpts.Config.AIMode = string(expert.ID)
-	// Forzamos el uso del modelo más eficiente y barato para el experto (mini)
-	expertOpts.Config.Model = "gpt-4o-mini"
-	if expert.DefaultModel != "" {
+	// Heredar el modelo seleccionado por el usuario en el chat principal si está disponible
+	if chatOpts.Config.Model != "" {
+		expertOpts.Config.Model = chatOpts.Config.Model
+	} else if expert.DefaultModel != "" {
 		expertOpts.Config.Model = expert.DefaultModel
+	} else {
+		expertOpts.Config.Model = "gpt-4o-mini"
 	}
 
 	// 2. Obtener herramientas filtradas para el experto y su prompt específico

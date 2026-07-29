@@ -298,14 +298,22 @@ header "🏗️  Compilando frontend Electron..."
 
 if [ "$QUICK" = false ]; then
     info "Ejecutando: npm run build:prod"
-    npm run build:prod 2>&1 | tail -10
+    NODE_OPTIONS="--max-old-space-size=8192" npm run build:prod 2>&1 | tee /tmp/gulin-build.log | tail -20 || {
+        error "Build falló. Log completo: /tmp/gulin-build.log"
+        tail -50 /tmp/gulin-build.log
+        exit 1
+    }
     log "Build completada"
 else
     if [ -d "dist/main" ] && [ -d "dist/frontend" ]; then
         log "Build existente en dist/, omitiendo (--quick)"
     else
         info "Build no encontrada en dist/, compilando..."
-        npm run build:prod 2>&1 | tail -10
+        NODE_OPTIONS="--max-old-space-size=8192" npm run build:prod 2>&1 | tee /tmp/gulin-build.log | tail -20 || {
+            error "Build falló. Log completo: /tmp/gulin-build.log"
+            tail -50 /tmp/gulin-build.log
+            exit 1
+        }
         log "Build completada"
     fi
 fi

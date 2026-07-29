@@ -33,7 +33,7 @@ type PluginParam struct {
 
 // LoadPlugins reads all .js files from the plugins directory and returns a list of ToolDefinitions.
 func LoadPlugins(ctx context.Context, tabid string) ([]uctypes.ToolDefinition, error) {
-	pluginsDir := filepath.Join(gulinbase.GetGulinConfigDir(), PluginsDirName)
+	pluginsDir := gulinbase.GetConfiguredPluginsDir()
 	if _, err := os.Stat(pluginsDir); os.IsNotExist(err) {
 		os.MkdirAll(pluginsDir, 0755)
 		return nil, nil

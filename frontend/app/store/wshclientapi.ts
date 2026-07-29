@@ -557,6 +557,46 @@ class RpcApiType {
         return client.wshRpcCall("makedraftfromlocal", data, opts);
     }
 
+    // command "mcpadd" [call]
+    MCPAddCommand(client: WshClient, data: MCPServerInfo, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("mcpadd", data, opts);
+    }
+
+    // command "mcpdelete" [call]
+    MCPDeleteCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("mcpdelete", data, opts);
+    }
+
+    // command "mcplist" [call]
+    MCPListCommand(client: WshClient, opts?: RpcOpts): Promise<MCPServerInfo[]> {
+        return client.wshRpcCall("mcplist", null, opts);
+    }
+
+    // command "mcpmarketplaceadd" [call]
+    MCPMarketplaceAddCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("mcpmarketplaceadd", data, opts);
+    }
+
+    // command "mcpmarketplacecatalog" [call]
+    MCPMarketplaceCatalogCommand(client: WshClient, opts?: RpcOpts): Promise<MCPMarketplaceItem[]> {
+        return client.wshRpcCall("mcpmarketplacecatalog", null, opts);
+    }
+
+    // command "mcpmarketplacedelete" [call]
+    MCPMarketplaceDeleteCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("mcpmarketplacedelete", data, opts);
+    }
+
+    // command "mcpmarketplacegetrepos" [call]
+    MCPMarketplaceGetReposCommand(client: WshClient, opts?: RpcOpts): Promise<string[]> {
+        return client.wshRpcCall("mcpmarketplacegetrepos", null, opts);
+    }
+
+    // command "mcptest" [call]
+    MCPTestCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<MCPToolInfo[]> {
+        return client.wshRpcCall("mcptest", data, opts);
+    }
+
     // command "message" [call]
     MessageCommand(client: WshClient, data: CommandMessageData, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("message", data, opts);

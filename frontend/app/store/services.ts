@@ -119,6 +119,12 @@ class WindowServiceType {
         return WOS.callBackendService("window", "MoveBlockToNewWindow", Array.from(arguments))
     }
 
+    // create a new window and insert a block created from blockDef
+    // @returns object updates
+    PopOutBlockDefToNewWindow(blockDef: BlockDef): Promise<void> {
+        return WOS.callBackendService("window", "PopOutBlockDefToNewWindow", Array.from(arguments))
+    }
+
     // set window position and size
     // @returns object updates
     SetWindowPosAndSize(windowId: string, pos: Point, size: WinSize): Promise<void> {

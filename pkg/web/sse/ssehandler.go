@@ -57,6 +57,7 @@ const (
 	AiMsgFinishStep          = "finish-step"
 	AiMsgError               = "error"
 	AiMsgDebugLog            = "data-debuglog"
+	AiMsgTokenUsage          = "data-tokenusage"
 )
 
 // Debug Log Categories
@@ -517,6 +518,24 @@ func (h *SSEHandlerCh) AiMsgDebugLog(category, message string) error {
 		"ts":       time.Now().UnixMilli(),
 	}
 	return h.AiMsgData("data-debuglog", "", data)
+}
+
+func (h *SSEHandlerCh) AiMsgTokenUsage(input, output, total int) error {
+	data := map[string]any{
+		"input":  input,
+		"output": output,
+		"total":  total,
+	}
+	return h.AiMsgData(AiMsgTokenUsage, "", data)
+}
+
+func SendTokenUsage(ctx context.Context, input, output, total int) {
+	if ctx == nil {
+		return
+	}
+	if h, ok := ctx.Value(SSEHandlerContextKey).(*SSEHandlerCh); ok {
+		h.AiMsgTokenUsage(input, output, total)
+	}
 }
 
 func SendDebugLog(ctx context.Context, category, message string) {
