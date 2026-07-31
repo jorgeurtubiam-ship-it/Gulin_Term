@@ -2,13 +2,20 @@
 # =============================================================================
 # install.sh - Instalador CLI de GuLiN (gulinsrv + wsh) para macOS
 # =============================================================================
+# Estrategia: build-from-source desde el repo público.
+#   - El cliente baja el código fuente (sin auth, repo público)
+#   - Compila localmente (binario nativo para SU Mac: arm64 o x86_64)
+#   - No requiere Releases publicados, ni tokens, ni cross-compile
+#
 # Uso (lo que ejecuta tu cliente):
 #   curl -fsSL https://raw.githubusercontent.com/jorgeurtubiam-ship-it/Gulin_Term/main/scripts/install.sh | bash
 #
 # Variables opcionales:
-#   GULIN_VERSION=2.0.4   # Instala una versión específica (default: latest)
-#   GULIN_NO_PATH=1       # No modifica el PATH automáticamente
-#   GULIN_INSTALL_DIR=... # Directorio de instalación custom (default: ~/.gulin/bin)
+#   GULIN_REF=main                    # Rama/ref a bajar (default: main)
+#   GULIN_INSTALL_DIR=...             # Directorio de instalación (default: ~/.gulin/bin)
+#   GULIN_NO_PATH=1                   # No modifica el PATH automáticamente
+#   GULIN_GH_USER=...                 # Owner del repo (default: jorgeurtubiam-ship-it)
+#   GULIN_GH_REPO=...                 # Nombre del repo (default: Gulin_Term)
 # =============================================================================
 
 set -euo pipefail
@@ -16,10 +23,11 @@ set -euo pipefail
 # ─── Configuración ───────────────────────────────────────────────────────────
 GITHUB_USER="${GULIN_GH_USER:-jorgeurtubiam-ship-it}"
 GITHUB_REPO="${GULIN_GH_REPO:-Gulin_Term}"
+REF="${GULIN_REF:-main}"
 APP_NAME="GuLiN"
 DEFAULT_INSTALL_DIR="${HOME}/.gulin/bin"
 INSTALL_DIR="${GULIN_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
-VERSION="${GULIN_VERSION:-}"
+MIN_GO_VERSION="1.21"
 
 # ─── Colores ────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -40,6 +48,7 @@ cat <<'EOF'
 
    ==============================================
        GuLiN CLI - Instalador 1-linea (curl)
+       Estrategia: build-from-source
    ==============================================
 
 EOF
@@ -47,16 +56,17 @@ EOF
 # ─── 1. Verificar macOS ────────────────────────────────────────────────────
 if [ "$(uname -s)" != "Darwin" ]; then
     err "Este instalador es solo para macOS."
-    err "Para Linux/Windows descarga los binarios desde GitHub Releases."
+    err "Para Linux/Windows: clona el repo y compila manualmente."
     exit 1
 fi
+log "macOS detectado"
 
 # ─── 2. Detectar arquitectura ───────────────────────────────────────────────
 detect_arch() {
     local hw
     hw="$(uname -m)"
     case "$hw" in
-        x86_64)            echo "x64"   ;;
+        x86_64)            echo "amd64" ;;
         arm64|aarch64)     echo "arm64" ;;
         *)
             err "Arquitectura no soportada: $hw"
@@ -65,108 +75,135 @@ detect_arch() {
             ;;
     esac
 }
-
 ARCH="$(detect_arch)"
 log "Arquitectura: ${BOLD}${ARCH}${NC}"
 
-# ─── 3. Obtener última versión ──────────────────────────────────────────────
-get_latest_version() {
-    local api_url="https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/releases/latest"
-    local tag
-    tag="$(curl -fsSL -A 'gulin-install' "$api_url" 2>/dev/null \
-        | grep '"tag_name"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/')"
-    if [ -z "$tag" ]; then
-        err "No pude obtener la ultima version desde GitHub API."
-        err "Verifica tu conexion o especifica una version:"
-        err "    GULIN_VERSION=2.0.4 curl -fsSL ... | bash"
-        exit 1
-    fi
-    echo "$tag"
-}
+# ─── 3. Verificar prerrequisitos ────────────────────────────────────────────
+hr
+info "Verificando prerrequisitos..."
 
-if [ -z "$VERSION" ]; then
-    info "Buscando ultima version en GitHub Releases..."
-    VERSION="$(get_latest_version)"
+# 3a. Go
+if ! command -v go >/dev/null 2>&1; then
+    err "Go no esta instalado."
+    err ""
+    err "Instalalo con Homebrew (requiere ~5 min, una sola vez):"
+    err "    /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+    err "    brew install go"
+    err ""
+    err "O descarga Go desde: https://go.dev/dl/"
+    exit 1
 fi
-log "Version: ${BOLD}v${VERSION}${NC}"
+
+GO_VERSION_RAW="$(go version | awk '{print $3}')"   # ej: go1.22.5
+GO_VERSION_NUM="${GO_VERSION_RAW#go}"               # 1.22.5
+GO_MAJOR="$(echo "$GO_VERSION_NUM" | cut -d. -f1)"
+GO_MINOR="$(echo "$GO_VERSION_NUM" | cut -d. -f2)"
+NEED_MAJOR="$(echo "$MIN_GO_VERSION" | cut -d. -f1)"
+NEED_MINOR="$(echo "$MIN_GO_VERSION" | cut -d. -f2)"
+
+if [ "$GO_MAJOR" -lt "$NEED_MAJOR" ] || { [ "$GO_MAJOR" -eq "$NEED_MAJOR" ] && [ "$GO_MINOR" -lt "$NEED_MINOR" ]; }; then
+    err "Go $GO_VERSION_RAW detectado, se requiere >= $MIN_GO_VERSION"
+    err "Actualiza con: brew upgrade go"
+    exit 1
+fi
+log "Go $GO_VERSION_RAW (cumple >= $MIN_GO_VERSION)"
+
+# 3b. Xcode Command Line Tools (necesario para CGO + sqlite3.h)
+if ! command -v clang >/dev/null 2>&1 || ! [ -f "$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)/usr/include/sqlite3.h" ]; then
+    err "Xcode Command Line Tools no estan instalados o les falta sqlite3.h."
+    err "Instalalos con:"
+    err "    xcode-select --install"
+    exit 1
+fi
+log "Xcode CLI Tools OK"
 
 # ─── 4. Preparar directorio temporal ────────────────────────────────────────
 TMP_DIR="$(mktemp -d -t gulin-install.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+SRC_DIR="${TMP_DIR}/src"
+mkdir -p "$SRC_DIR"
 
-BASE_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases/download/v${VERSION}"
-TARBALL="GuLiN-${VERSION}-darwin-${ARCH}.tar.gz"
-
-# ─── 5. Descargar tarball ───────────────────────────────────────────────────
+# ─── 5. Descargar código fuente ─────────────────────────────────────────────
 hr
-info "Descargando ${CYAN}${TARBALL}${NC}..."
-if ! curl -fSL --connect-timeout 15 --max-time 120 -o "${TMP_DIR}/${TARBALL}" \
-        "${BASE_URL}/${TARBALL}"; then
-    err "Fallo la descarga desde:"
-    err "    ${BASE_URL}/${TARBALL}"
-    err ""
-    err "Posibles causas:"
-    err "  - La version v${VERSION} no tiene binarios para macOS-${ARCH}"
-    err "  - No existe un release publicado (pide al autor que suba uno)"
-    err "  - Tu red bloquea GitHub"
+SOURCE_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${REF}.tar.gz"
+info "Descargando codigo fuente (rama: ${REF})..."
+info "  desde: ${SOURCE_URL}"
+
+if ! curl -fSL --connect-timeout 15 --max-time 300 \
+        -o "${TMP_DIR}/src.tar.gz" "$SOURCE_URL"; then
+    err "No pude descargar el codigo fuente."
+    err "Verifica tu conexion o que el repo sea publico."
     exit 1
 fi
 
-DOWNLOAD_SIZE="$(du -h "${TMP_DIR}/${TARBALL}" | cut -f1 | tr -d ' ')"
-log "Descarga completa: ${DOWNLOAD_SIZE}"
+SRC_SIZE="$(du -h "${TMP_DIR}/src.tar.gz" | cut -f1 | tr -d ' ')"
+log "Descarga completa: ${SRC_SIZE}"
 
-# ─── 6. Verificar SHA256 ────────────────────────────────────────────────────
-SKIP_VERIFY=0
-info "Descargando checksums.txt..."
-if ! curl -fsSL --connect-timeout 10 --max-time 30 -o "${TMP_DIR}/checksums.txt" \
-        "${BASE_URL}/checksums.txt" 2>/dev/null; then
-    warn "No se pudo descargar checksums.txt - continuando SIN verificacion."
-    SKIP_VERIFY=1
+# ─── 6. Extraer código fuente ───────────────────────────────────────────────
+info "Extrayendo codigo fuente..."
+tar -xzf "${TMP_DIR}/src.tar.gz" -C "$SRC_DIR" --strip-components=1
+
+if [ ! -d "${SRC_DIR}/cmd" ]; then
+    err "El codigo fuente extraido no parece ser valido (no hay carpeta cmd/)."
+    err "Contenido:"
+    ls -la "$SRC_DIR" | sed 's/^/    /'
+    exit 1
+fi
+log "Codigo fuente extraido"
+
+# Detectar versión desde package.json si existe
+if [ -f "${SRC_DIR}/package.json" ]; then
+    PKG_VERSION="$(python3 -c "import json,sys; print(json.load(open('${SRC_DIR}/package.json')).get('version','unknown'))" 2>/dev/null || echo unknown)"
+    log "Version (package.json): ${BOLD}${PKG_VERSION}${NC}"
 fi
 
-if [ "$SKIP_VERIFY" -eq 0 ]; then
-    info "Verificando SHA256..."
-    EXPECTED="$(grep -E "[[:space:]]${TARBALL}\$" "${TMP_DIR}/checksums.txt" 2>/dev/null | awk '{print $1}' | head -1)"
-    if [ -z "$EXPECTED" ]; then
-        err "No encontre checksum para ${TARBALL} en checksums.txt."
-        err "El release puede estar corrupto o mal publicado."
-        exit 1
-    fi
-
-    ACTUAL=""
-    if command -v sha256sum >/dev/null 2>&1; then
-        ACTUAL="$(sha256sum "${TMP_DIR}/${TARBALL}" | awk '{print $1}')"
-    elif command -v shasum >/dev/null 2>&1; then
-        ACTUAL="$(shasum -a 256 "${TMP_DIR}/${TARBALL}" | awk '{print $1}')"
-    fi
-
-    if [ -z "$ACTUAL" ]; then
-        err "No tengo sha256sum ni shasum disponibles."
-        exit 1
-    fi
-
-    if [ "$EXPECTED" != "$ACTUAL" ]; then
-        err "Checksum NO coincide."
-        err "  Esperado: ${EXPECTED}"
-        err "  Obtenido: ${ACTUAL}"
-        exit 1
-    fi
-    log "SHA256 verificado correctamente."
-fi
-
-# ─── 7. Extraer ──────────────────────────────────────────────────────────────
+# ─── 7. Compilar ────────────────────────────────────────────────────────────
 hr
-info "Extrayendo binarios..."
-tar -xzf "${TMP_DIR}/${TARBALL}" -C "$TMP_DIR"
+info "Compilando binarios nativos para ${ARCH}..."
+echo
 
-# Detectar binarios (acepta cualquier naming razonable)
-SRV_BIN="$(find "$TMP_DIR" -maxdepth 3 -type f \( -name 'gulinsrv*' -o -name 'gulinsrv' \) 2>/dev/null | grep -v '\.exe$' | head -1)"
-WSH_BIN="$(find "$TMP_DIR" -maxdepth 3 -type f \( -name 'wsh*' -o -name 'wsh' \) 2>/dev/null | grep -v '\.exe$' | head -1)"
+cd "$SRC_DIR"
 
-if [ -z "$SRV_BIN" ] && [ -z "$WSH_BIN" ]; then
-    err "El tarball no contiene binarios esperados (gulinsrv o wsh)."
-    err "Contenido del tarball:"
-    tar -tzf "${TMP_DIR}/${TARBALL}" | sed 's/^/    /'
+# Compilar gulinsrv
+info "  -> go build gulinsrv (puede tardar 1-3 min la primera vez)"
+SRV_OUT="${TMP_DIR}/gulinsrv"
+if ! CGO_CFLAGS="-I${SRC_DIR}/include -fno-sanitize=undefined" \
+     CGO_ENABLED=1 GOOS=darwin GOARCH="$ARCH" \
+     go build \
+        -tags "osusergo,sqlite_omit_load_extension" \
+        -ldflags="-s -w" \
+        -o "$SRV_OUT" \
+        ./cmd/server/main-server.go; then
+    err "Fallo la compilacion de gulinsrv."
+    err "Revisa que tu Mac tenga Xcode CLI Tools actualizados."
+    exit 1
+fi
+chmod +x "$SRV_OUT"
+log "gulinsrv compilado"
+
+# Compilar wsh
+info "  -> go build wsh"
+WSH_OUT="${TMP_DIR}/wsh"
+if ! CGO_CFLAGS="-I${SRC_DIR}/include -fno-sanitize=undefined" \
+     CGO_ENABLED=1 GOOS=darwin GOARCH="$ARCH" \
+     go build \
+        -tags "osusergo,sqlite_omit_load_extension" \
+        -ldflags="-s -w" \
+        -o "$WSH_OUT" \
+        ./cmd/wsh/main-wsh.go; then
+    err "Fallo la compilacion de wsh."
+    exit 1
+fi
+chmod +x "$WSH_OUT"
+log "wsh compilado"
+
+# Verificar binarios
+if [ ! -x "$SRV_OUT" ] || [ ! -s "$SRV_OUT" ]; then
+    err "gulinsrv no se genero correctamente."
+    exit 1
+fi
+if [ ! -x "$WSH_OUT" ] || [ ! -s "$WSH_OUT" ]; then
+    err "wsh no se genero correctamente."
     exit 1
 fi
 
@@ -175,24 +212,13 @@ hr
 info "Instalando en ${BOLD}${INSTALL_DIR}${NC}..."
 mkdir -p "$INSTALL_DIR"
 
-INSTALLED_ANY=0
-if [ -n "$SRV_BIN" ]; then
-    cp "$SRV_BIN" "${INSTALL_DIR}/gulinsrv"
-    chmod +x "${INSTALL_DIR}/gulinsrv"
-    log "gulinsrv -> ${INSTALL_DIR}/gulinsrv"
-    INSTALLED_ANY=1
-fi
-if [ -n "$WSH_BIN" ]; then
-    cp "$WSH_BIN" "${INSTALL_DIR}/wsh"
-    chmod +x "${INSTALL_DIR}/wsh"
-    log "wsh -> ${INSTALL_DIR}/wsh"
-    INSTALLED_ANY=1
-fi
+cp "$SRV_OUT" "${INSTALL_DIR}/gulinsrv"
+chmod +x "${INSTALL_DIR}/gulinsrv"
+log "gulinsrv -> ${INSTALL_DIR}/gulinsrv"
 
-if [ "$INSTALLED_ANY" -eq 0 ]; then
-    err "No se instalo ningun binario."
-    exit 1
-fi
+cp "$WSH_OUT" "${INSTALL_DIR}/wsh"
+chmod +x "${INSTALL_DIR}/wsh"
+log "wsh     -> ${INSTALL_DIR}/wsh"
 
 # ─── 9. Configurar PATH ─────────────────────────────────────────────────────
 if [ "${GULIN_NO_PATH:-0}" = "1" ]; then
@@ -241,22 +267,24 @@ fi
 # ─── 10. Verificar ──────────────────────────────────────────────────────────
 hr
 log "Verificando instalacion..."
-VERIFY_OK=1
+
 if [ -x "${INSTALL_DIR}/gulinsrv" ]; then
     if "${INSTALL_DIR}/gulinsrv" --version >/dev/null 2>&1; then
-        VERSION_OUT="$("${INSTALL_DIR}/gulinsrv" --version 2>&1 | head -1)"
+        VERSION_OUT="$("${INSTALL_DIR}/gulinsrv" --version 2>/dev/null | head -1)"
         log "gulinsrv OK (${VERSION_OUT:-version OK})"
     else
-        warn "gulinsrv instalado pero no responde a --version (puede ser normal)"
+        warn "gulinsrv instalado (puede no soportar --version)"
     fi
 else
     err "gulinsrv no es ejecutable"
-    VERIFY_OK=0
+    exit 1
 fi
+
 if [ -x "${INSTALL_DIR}/wsh" ]; then
     log "wsh OK"
 else
-    warn "wsh no es ejecutable (puede que el release no lo incluya)"
+    err "wsh no es ejecutable"
+    exit 1
 fi
 
 # ─── Resultado final ────────────────────────────────────────────────────────
@@ -265,10 +293,12 @@ cat <<EOF
 
 ${GREEN}${BOLD}Instalacion completada!${NC}
 
-Binarios en: ${BOLD}${INSTALL_DIR}${NC}
+  Binarios en:    ${BOLD}${INSTALL_DIR}${NC}
+  Arquitectura:   ${ARCH}
+  Fuente:         ${GITHUB_USER}/${GITHUB_REPO}@${REF}
 
 Para empezar a usar GuLiN CLI ahora mismo:
-    export PATH="${INSTALL_DIR}:\$PATH"
+    export PATH="\${INSTALL_DIR}:\$PATH"
     gulinsrv --help
     wsh --help
 
@@ -279,9 +309,5 @@ Para desinstalar:
     # y elimina la linea de PATH en tu rc file
 
 EOF
-
-if [ "$VERIFY_OK" -eq 0 ]; then
-    exit 1
-fi
 
 exit 0
