@@ -37,11 +37,11 @@ else
     GREEN=''; YELLOW=''; CYAN=''; RED=''; BOLD=''; NC=''
 fi
 
-log()  { printf "${GREEN}[ok]${NC} %s\n" "$*"; }
-warn() { printf "${YELLOW}[!]${NC} %s\n" "$*"; }
-info() { printf "${CYAN}[i]${NC} %s\n" "$*"; }
-err()  { printf "${RED}[x]${NC} %s\n" "$*" >&2; }
-hr()   { printf "%b\n" "${CYAN}--------------------------------------------${NC}"; }
+log()  { printf -- "${GREEN}[ok]${NC} %s\n" "$*"; }
+warn() { printf -- "${YELLOW}[!]${NC} %s\n" "$*"; }
+info() { printf -- "${CYAN}[i]${NC} %s\n" "$*"; }
+err()  { printf -- "${RED}[x]${NC} %s\n" "$*" >&2; }
+hr()   { printf -- "--------------------------------------------\n"; }
 
 # ─── Banner ─────────────────────────────────────────────────────────────────
 cat <<'EOF'
