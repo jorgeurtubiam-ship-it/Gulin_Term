@@ -34,12 +34,13 @@ echo "🚀 Promoción del repo ${REPO}"
 
 # ---------------------------------------------------------------
 # 1) TÓPICOS — hace que el repo aparezca en github.com/topics/*
+#    NOTA: GitHub permite un MÁXIMO DE 20 topics por repositorio.
 # ---------------------------------------------------------------
 TOPICS=(
     "shell" "terminal" "developer-tools" "ai" "llm-agents" "agent"
     "rag" "ollama" "openai" "claude" "gemini" "deepseek"
     "database" "sql" "bigdata" "dremio" "mongodb" "postgres"
-    "infrastructure-as-code" "monitoring" "dashboards" "electron-app"
+    "monitoring" "electron-app"
 )
 
 # Convierte a JSON array de strings
