@@ -30,17 +30,24 @@ INSTALL_DIR="${GULIN_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 MIN_GO_VERSION="1.21"
 
 # ─── Colores ────────────────────────────────────────────────────────────────
-if [ -t 1 ]; then
+# Detecta si AMBOS stdout y stderr son TTY para activar color.
+# Cuando se ejecuta via 'curl ... | bash', stdout = pipe => sin color,
+# evitando que salgan secuencias '\033' literales en el log del cliente.
+if [ -t 1 ] && [ -t 2 ] && [ "${NO_COLOR:-0}" != "1" ]; then
     GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'
     RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
+    # printf '%b' interpreta los escapes \033 cuando vienen de variables
+    log()  { printf '%b[ok]%b %s\n' "$GREEN" "$NC" "$*"; }
+    warn() { printf '%b[!]%b %s\n'  "$YELLOW" "$NC" "$*"; }
+    info() { printf '%b[i]%b %s\n'  "$CYAN" "$NC" "$*"; }
+    err()  { printf '%b[x]%b %s\n'  "$RED" "$NC" "$*" >&2; }
 else
     GREEN=''; YELLOW=''; CYAN=''; RED=''; BOLD=''; NC=''
+    log()  { printf '%s\n' "[ok] $*"; }
+    warn() { printf '%s\n' "[!]  $*"; }
+    info() { printf '%s\n' "[i]  $*"; }
+    err()  { printf '%s\n' "[x]  $*" >&2; }
 fi
-
-log()  { printf -- "${GREEN}[ok]${NC} %s\n" "$*"; }
-warn() { printf -- "${YELLOW}[!]${NC} %s\n" "$*"; }
-info() { printf -- "${CYAN}[i]${NC} %s\n" "$*"; }
-err()  { printf -- "${RED}[x]${NC} %s\n" "$*" >&2; }
 hr()   { printf -- "--------------------------------------------\n"; }
 
 # ─── Banner ─────────────────────────────────────────────────────────────────
@@ -76,7 +83,7 @@ detect_arch() {
     esac
 }
 ARCH="$(detect_arch)"
-log "Arquitectura: ${BOLD}${ARCH}${NC}"
+log "Arquitectura: ${ARCH}"
 
 # ─── 3. Verificar prerrequisitos (fail-fast con instrucciones claras) ────────
 hr
@@ -202,7 +209,7 @@ log "Codigo fuente extraido"
 # Detectar versión desde package.json si existe
 if [ -f "${SRC_DIR}/package.json" ]; then
     PKG_VERSION="$(python3 -c "import json,sys; print(json.load(open('${SRC_DIR}/package.json')).get('version','unknown'))" 2>/dev/null || echo unknown)"
-    log "Version (package.json): ${BOLD}${PKG_VERSION}${NC}"
+    log "Version (package.json): ${PKG_VERSION}"
 fi
 
 # ─── 7. Compilar ────────────────────────────────────────────────────────────
@@ -257,7 +264,7 @@ fi
 
 # ─── 8. Instalar ─────────────────────────────────────────────────────────────
 hr
-info "Instalando en ${BOLD}${INSTALL_DIR}${NC}..."
+info "Instalando en ${INSTALL_DIR}..."
 mkdir -p "$INSTALL_DIR"
 
 cp "$SRV_OUT" "${INSTALL_DIR}/gulinsrv"
@@ -341,7 +348,7 @@ cat <<EOF
 
 ${GREEN}${BOLD}Instalacion completada!${NC}
 
-  Binarios en:    ${BOLD}${INSTALL_DIR}${NC}
+  Binarios en:    ${INSTALL_DIR}
   Arquitectura:   ${ARCH}
   Fuente:         ${GITHUB_USER}/${GITHUB_REPO}@${REF}
 
