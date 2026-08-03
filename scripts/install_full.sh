@@ -46,9 +46,23 @@ for arg in "$@"; do
     esac
 done
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/.."
-ROOT="$(pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
+# Instalador autocontenido: clona el repo si no estamos dentro de el.
+if [ -f "$PWD/package.json" ] && [ -d "$PWD/cmd" ]; then
+    ROOT="$PWD"
+elif [ -d "$SCRIPT_DIR/.." ] && [ -f "$SCRIPT_DIR/../package.json" ] && [ -d "$SCRIPT_DIR/../cmd" ]; then
+    cd "$SCRIPT_DIR/.."
+    ROOT="$(pwd)"
+else
+    INSTALL_DIR="${GULIN_DIR:-$HOME/gulin-term}"
+    if [ ! -d "$INSTALL_DIR/cmd" ]; then
+        info "Clonando GuLiN desde GitHub en $INSTALL_DIR..."
+        GIT_REPO="${GULIN_REPO:-https://github.com/jorgeurtubiam-ship-it/Gulin_Term.git}"
+        git clone --depth 1 "$GIT_REPO" "$INSTALL_DIR" || { error "No se pudo clonar $GIT_REPO"; exit 1; }
+    fi
+    cd "$INSTALL_DIR"
+    ROOT="$(pwd)"
+fi
 APP_NAME="GuLiN"
 APP_VERSION="$(node -e "console.log(require('./package.json').version)" 2>/dev/null || echo "0.0.0")"
 HOST_ARCH="$(uname -m)"
