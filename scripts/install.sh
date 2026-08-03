@@ -78,44 +78,92 @@ detect_arch() {
 ARCH="$(detect_arch)"
 log "Arquitectura: ${BOLD}${ARCH}${NC}"
 
-# ─── 3. Verificar prerrequisitos ────────────────────────────────────────────
+# ─── 3. Verificar prerrequisitos (fail-fast con instrucciones claras) ────────
 hr
 info "Verificando prerrequisitos..."
 
-# 3a. Go
-if ! command -v go >/dev/null 2>&1; then
-    err "Go no esta instalado."
-    err ""
-    err "Instalalo con Homebrew (requiere ~5 min, una sola vez):"
-    err "    /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-    err "    brew install go"
-    err ""
-    err "O descarga Go desde: https://go.dev/dl/"
-    exit 1
-fi
+OS="$(uname -s)"
+MISSING=0
+NEED_HOMEBREW=0
 
-GO_VERSION_RAW="$(go version | awk '{print $3}')"   # ej: go1.22.5
-GO_VERSION_NUM="${GO_VERSION_RAW#go}"               # 1.22.5
-GO_MAJOR="$(echo "$GO_VERSION_NUM" | cut -d. -f1)"
-GO_MINOR="$(echo "$GO_VERSION_NUM" | cut -d. -f2)"
-NEED_MAJOR="$(echo "$MIN_GO_VERSION" | cut -d. -f1)"
-NEED_MINOR="$(echo "$MIN_GO_VERSION" | cut -d. -f2)"
-
-if [ "$GO_MAJOR" -lt "$NEED_MAJOR" ] || { [ "$GO_MAJOR" -eq "$NEED_MAJOR" ] && [ "$GO_MINOR" -lt "$NEED_MINOR" ]; }; then
-    err "Go $GO_VERSION_RAW detectado, se requiere >= $MIN_GO_VERSION"
-    err "Actualiza con: brew upgrade go"
-    exit 1
-fi
-log "Go $GO_VERSION_RAW (cumple >= $MIN_GO_VERSION)"
-
-# 3b. Xcode Command Line Tools (necesario para CGO + sqlite3.h)
+# 3a. Xcode Command Line Tools (necesario para CGO + sqlite3.h)
 if ! command -v clang >/dev/null 2>&1 || ! [ -f "$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)/usr/include/sqlite3.h" ]; then
-    err "Xcode Command Line Tools no estan instalados o les falta sqlite3.h."
-    err "Instalalos con:"
-    err "    xcode-select --install"
+    err "Falta: Xcode Command Line Tools"
+    err "  Instalar con:"
+    err "      xcode-select --install"
+    err "  (Apple abrira una ventana emergente. Pulsa 'Instalar' y acepta licencia.)"
+    if [ "$OS" = "Darwin" ]; then
+        err "  Necesario para compilar la dependencia CGO sqlite3."
+    fi
+    MISSING=1
+    NEED_HOMEBREW=1
+fi
+
+# 3b. Go
+if ! command -v go >/dev/null 2>&1; then
+    err "Falta: Go"
+    err "  Instalar con:"
+    err "      brew install go"
+    err "  (Si no tienes Homebrew, primero: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\")"
+    err "  Version requerida: >= $MIN_GO_VERSION"
+    MISSING=1
+    NEED_HOMEBREW=1
+else
+    GO_VERSION_RAW="$(go version | awk '{print $3}')"
+    GO_VERSION_NUM="${GO_VERSION_RAW#go}"
+    GO_MAJOR="$(echo "$GO_VERSION_NUM" | cut -d. -f1)"
+    GO_MINOR="$(echo "$GO_VERSION_NUM" | cut -d. -f2)"
+    NEED_MAJOR="$(echo "$MIN_GO_VERSION" | cut -d. -f1)"
+    NEED_MINOR="$(echo "$MIN_GO_VERSION" | cut -d. -f2)"
+    if [ "$GO_MAJOR" -lt "$NEED_MAJOR" ] || { [ "$GO_MAJOR" -eq "$NEED_MAJOR" ] && [ "$GO_MINOR" -lt "$NEED_MINOR" ]; }; then
+        err "Go $GO_VERSION_RAW detectado, se requiere >= $MIN_GO_VERSION"
+        err "  Actualizar con:"
+        err "      brew upgrade go"
+        MISSING=1
+    else
+        log "Go $GO_VERSION_RAW (cumple >= $MIN_GO_VERSION)"
+    fi
+fi
+
+# 3c. Node (necesario para `npm install` de gulinsrv/web extension)
+if ! command -v node >/dev/null 2>&1; then
+    err "Falta: Node.js"
+    err "  Instalar con:"
+    err "      brew install node@18"
+    err "  (o con nvm: https://github.com/nvm-sh/nvm)"
+    err "  Version requerida: >= 18"
+    MISSING=1
+    NEED_HOMEBREW=1
+else
+    NODE_VERSION_RAW="$(node --version)"
+    NODE_MAJOR="$(echo "$NODE_VERSION_RAW" | sed 's/^v//' | cut -d. -f1)"
+    if [ "$NODE_MAJOR" -lt 18 ]; then
+        err "Node $NODE_VERSION_RAW detectado, se requiere >= 18"
+        err "  Actualizar con:"
+        err "      brew upgrade node@18"
+        MISSING=1
+    else
+        log "Node $NODE_VERSION_RAW (cumple >= 18)"
+    fi
+fi
+
+# Si faltan cosas, abortar con instrucciones claras
+if [ "$MISSING" = "1" ]; then
+    echo
+    err "═══════════════════════════════════════════════════════════════"
+    err "  Faltan prerrequisitos. Instala lo de arriba y vuelve a correr:"
+    err "      curl -fsSL https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/scripts/install.sh | bash"
+    err "═══════════════════════════════════════════════════════════════"
+    if [ "$NEED_HOMEBREW" = "1" ] && ! command -v brew >/dev/null 2>&1; then
+        echo
+        err "  RECORDATORIO: Si no tienes Homebrew, primero:"
+        err "      /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        err "  Si brew install <pkg> dice 'already installed', ignoralo: significa que ya estaba."
+    fi
     exit 1
 fi
-log "Xcode CLI Tools OK"
+
+log "Todos los prerrequisitos OK"
 
 # ─── 4. Preparar directorio temporal ────────────────────────────────────────
 TMP_DIR="$(mktemp -d -t gulin-install.XXXXXX)"
