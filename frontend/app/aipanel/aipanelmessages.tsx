@@ -20,7 +20,9 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const prevStatusRef = useRef<string>(status);
-    const rafRef = useRef<number | null>(null);
+    // stickRef: true mientras el usuario está pegado al fondo.
+    // Si sube manualmente durante streaming, se pone en false y NO se le arranca.
+    const stickRef = useRef<boolean>(true);
 
     const scrollToBottom = () => {
         if (virtuosoRef.current) {
@@ -32,43 +34,21 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
         }
     };
 
-    // Auto-scroll continuo durante streaming
-    useEffect(() => {
-        if (status === "streaming") {
-            const doScroll = () => {
-                scrollToBottom();
-                rafRef.current = requestAnimationFrame(doScroll);
-            };
-            rafRef.current = requestAnimationFrame(doScroll);
-        } else {
-            if (rafRef.current) {
-                cancelAnimationFrame(rafRef.current);
-                rafRef.current = null;
-            }
-        }
-        return () => {
-            if (rafRef.current) {
-                cancelAnimationFrame(rafRef.current);
-                rafRef.current = null;
-            }
-        };
-    }, [status]);
-
-    useEffect(() => {
-        model.registerScrollToBottom(scrollToBottom);
-    }, [model]);
-
+    // Mantener pegado al fondo cuando el panel cambia a abierto.
     useEffect(() => {
         if (isPanelOpen) {
-            setTimeout(scrollToBottom, 50);
+            const t = setTimeout(scrollToBottom, 50);
+            return () => clearTimeout(t);
         }
     }, [isPanelOpen]);
 
+    // Cuando finaliza el streaming, hacer un scroll final limpio (una sola vez).
     useEffect(() => {
         const wasStreaming = prevStatusRef.current === "streaming";
         const isNowNotStreaming = status !== "streaming";
 
         if (wasStreaming && isNowNotStreaming) {
+            stickRef.current = true;
             requestAnimationFrame(() => {
                 scrollToBottom();
             });
@@ -77,7 +57,11 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
         prevStatusRef.current = status;
     }, [status]);
 
-    const displayMessages = [...messages];
+    useEffect(() => {
+        model.registerScrollToBottom(scrollToBottom);
+    }, [model]);
+
+    const displayMessages: GulinUIMessage[] = [...messages];
     if (
         status === "streaming" &&
         (messages.length === 0 || messages[messages.length - 1].role !== "assistant")
@@ -93,7 +77,15 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
                 className="w-full h-full"
                 style={{ padding: "0.5rem" }}
                 initialTopMostItemIndex={displayMessages.length > 0 ? displayMessages.length - 1 : 0}
-                followOutput="smooth"
+                followOutput={(atBottom) => {
+                    // Seguimos el stream solo si seguimos pegados al fondo (incluyendo el
+                    // caso de que la lista crezca con contenido nuevo) y el usuario no subió.
+                    // Virtuoso nos da 'atBottom' calculado por él mismo.
+                    return stickRef.current && atBottom;
+                }}
+                atBottomStateChange={(atBottom) => {
+                    stickRef.current = atBottom;
+                }}
                 itemContent={(index, message) => {
                     const isStreamingDummy = message.id === "last-message";
                     const isStreaming =
