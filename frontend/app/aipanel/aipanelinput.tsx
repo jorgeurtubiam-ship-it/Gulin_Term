@@ -154,6 +154,52 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
         }
     };
 
+    const handlePaste = useCallback(
+        async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+            // Only intercept if the clipboard actually contains image files (screenshots, copied images, etc.)
+            const items = e.clipboardData?.items;
+            if (!items || items.length === 0) return;
+
+            const imageFiles: File[] = [];
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === "file" && item.type && item.type.startsWith("image/")) {
+                    const file = item.getAsFile();
+                    if (file) imageFiles.push(file);
+                }
+            }
+
+            if (imageFiles.length === 0) return;
+
+            // Prevent the default text-paste behavior so the data URL string is not injected into the textarea
+            e.preventDefault();
+
+            for (const file of imageFiles) {
+                // Normalize the file name (clipboard files often come as "image.png" with no path)
+                const normalizedName =
+                    file.name && file.name !== "image.png" ? file.name : `pasted-image-${Date.now()}.${(file.type.split("/")[1] || "png").split(";")[0]}`;
+                const namedFile = new File([file], normalizedName, { type: file.type });
+
+                if (!isAcceptableFile(namedFile)) {
+                    model.setError(`Pasted image type not supported: ${file.type}`);
+                    continue;
+                }
+                const sizeError = validateFileSize(namedFile);
+                if (sizeError) {
+                    model.setError(formatFileSizeError(sizeError));
+                    continue;
+                }
+                try {
+                    await model.addFile(namedFile);
+                } catch (err) {
+                    console.error("Error adding pasted image:", err);
+                    model.setError("Failed to attach pasted image.");
+                }
+            }
+        },
+        [model]
+    );
+
     const [currentMode, setCurrentMode] = useAtom(model.currentAIMode);
 
     const toggleMode = useCallback(
@@ -225,6 +271,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         onFocus={handleFocus}
                         onBlur={handleBlur}
                         placeholder={placeholder}

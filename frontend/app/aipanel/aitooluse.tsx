@@ -734,7 +734,7 @@ ActionSummaryBanner.displayName = "ActionSummaryBanner";
 export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasoning }: AIToolUseGroupProps) => {
     const { t } = useTranslation();
     const compactMode = useAtomValue(getSettingsKeyAtom("gulin.ai.compact.mode"));
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(true);
 
     const tooluseParts = parts.filter((p) => p.type === "data-tooluse") as Array<
         GulinUIMessagePart & { type: "data-tooluse" }
@@ -884,18 +884,21 @@ export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasonin
         );
     }
 
-    return (
-        <>
-            {renderedItems}
-            {isAllDone && (
-                <ActionSummaryBanner 
-                    parts={tooluseParts} 
-                    isExpanded={isExpanded} 
-                    onToggle={() => setIsExpanded(!isExpanded)}
-                />
-            )}
-        </>
-    );
+      return (
+          <>
+              {isAllDone ? (
+                  <ActionSummaryBanner 
+                      parts={tooluseParts} 
+                      isExpanded={isExpanded} 
+                      onToggle={() => setIsExpanded(!isExpanded)}
+                  />
+              ) : (
+                  <>
+                      {renderedItems}
+                  </>
+              )}
+          </>
+      );
 });
 
 AIToolUseGroup.displayName = "AIToolUseGroup";
