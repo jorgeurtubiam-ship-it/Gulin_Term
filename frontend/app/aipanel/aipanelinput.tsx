@@ -328,6 +328,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                     )}
                 </div>
             </form>
+            <DocGenBar model={model} />
             {isManagerOpen && <SkillManager model={model} onClose={() => setIsManagerOpen(false)} />}
         </div>
     );
@@ -504,5 +505,102 @@ const SkillSelector = memo(({ model }: { model: GulinAIModel }) => {
 });
 
 SkillSelector.displayName = "SkillSelector";
+
+// Barra DocGen (B2): controles para generar documentos / visual BI desde el chat.
+const DocGenBar = memo(({ model }: { model: GulinAIModel }) => {
+    const [visualBI, setVisualBI] = useAtom(model.docGenVisualBI);
+    const [scope, setScope] = useAtom(model.docGenScope);
+    const [mode, setMode] = useAtom(model.docGenMode);
+    const [format, setFormat] = useAtom(model.docGenFormat);
+
+    const chipBase =
+        "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none border";
+
+    const formatChips: { key: "ppt" | "word" | "excel"; label: string; icon: string; activeClass: string }[] = [
+        { key: "ppt", label: "PPT", icon: "fa-solid fa-chart-pie", activeClass: "bg-orange-500/20 text-orange-300 border-orange-500/50" },
+        { key: "word", label: "Word", icon: "fa-solid fa-file-word", activeClass: "bg-blue-500/20 text-blue-300 border-blue-500/50" },
+        { key: "excel", label: "Excel", icon: "fa-solid fa-file-excel", activeClass: "bg-green-500/20 text-green-300 border-green-500/50" },
+    ];
+
+    const onFormatClick = (key: "ppt" | "word" | "excel") => {
+        // Si ya está seleccionado, se deselecciona; si no, se activa ese formato.
+        setFormat(format === key ? "none" : key);
+    };
+
+    return (
+        <div className="flex items-center gap-1.5 px-2 py-1 border-t border-gray-600/20 bg-zinc-800/20 overflow-x-auto">
+            {/* Toggle Visual BI */}
+            <button
+                type="button"
+                onClick={() => setVisualBI(!visualBI)}
+                title="Visual BI (gráficos inline)"
+                className={cn(
+                    chipBase,
+                    visualBI
+                        ? "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/50"
+                        : "bg-zinc-800/50 text-zinc-500 border-transparent hover:text-zinc-400"
+                )}
+            >
+                <i className="fa-solid fa-chart-column text-[10px]" />
+                Visual BI
+            </button>
+
+            <div className="h-3.5 w-[1px] bg-gray-600/30 mx-0.5" />
+
+            {/* DocScope: Sample / Full */}
+            <button
+                type="button"
+                onClick={() => setScope(scope === "sample" ? "full" : "sample")}
+                title="Alcance de datos: Sample (preview ~100 filas) / Full (hasta 50k)"
+                className={cn(
+                    chipBase,
+                    scope === "full"
+                        ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/50"
+                        : "bg-zinc-800/50 text-zinc-500 border-transparent hover:text-zinc-400"
+                )}
+            >
+                <i className="fa-solid fa-filter text-[10px]" />
+                {scope === "sample" ? "Sample" : "Full"}
+            </button>
+
+            {/* DocGenMode: Browser / Deep */}
+            <button
+                type="button"
+                onClick={() => setMode(mode === "browser" ? "deep" : "browser")}
+                title="Modo de generación: Browser·fast / Deep·slow"
+                className={cn(
+                    chipBase,
+                    mode === "deep"
+                        ? "bg-violet-500/20 text-violet-300 border-violet-500/50"
+                        : "bg-zinc-800/50 text-zinc-500 border-transparent hover:text-zinc-400"
+                )}
+            >
+                <i className="fa-solid fa-magnifying-glass text-[10px]" />
+                {mode === "browser" ? "Browser·fast" : "Deep·slow"}
+            </button>
+
+            <div className="h-3.5 w-[1px] bg-gray-600/30 mx-0.5" />
+
+            {/* Formatos PPT / Word / Excel */}
+            {formatChips.map((chip) => (
+                <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => onFormatClick(chip.key)}
+                    title={`Generar ${chip.label}`}
+                    className={cn(
+                        chipBase,
+                        format === chip.key ? chip.activeClass : "bg-zinc-800/50 text-zinc-500 border-transparent hover:text-zinc-400"
+                    )}
+                >
+                    <i className={chip.icon + " text-[10px]"} />
+                    {chip.label}
+                </button>
+            ))}
+        </div>
+    );
+});
+
+DocGenBar.displayName = "DocGenBar";
 
 AIPanelInput.displayName = "AIPanelInput";

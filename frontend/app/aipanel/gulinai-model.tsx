@@ -87,6 +87,11 @@ export class GulinAIModel {
     debugFilters: jotai.PrimitiveAtom<string[]> = jotai.atom(["API", "TERM", "FILE", "DB", "AI", "PLAI", "WEB"]);
     selectedSkill: jotai.PrimitiveAtom<{title: string, filename: string} | null> = jotai.atom(null) as jotai.PrimitiveAtom<{title: string, filename: string} | null>;
     availableSkills: jotai.PrimitiveAtom<{title: string, filename: string}[]> = jotai.atom([]);
+    // Barra DocGen: estado de generación de documentos / visual BI (B2).
+    docGenVisualBI: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
+    docGenScope: jotai.PrimitiveAtom<"sample" | "full"> = jotai.atom("sample");
+    docGenMode: jotai.PrimitiveAtom<"browser" | "deep"> = jotai.atom("browser");
+    docGenFormat: jotai.PrimitiveAtom<"none" | "ppt" | "word" | "excel"> = jotai.atom("none");
 
     private constructor(orefContext: ORef, inBuilder: boolean) {
         this.orefContext = orefContext;
@@ -752,6 +757,19 @@ export class GulinAIModel {
         if (input.trim()) {
             aiMessageParts.push({ type: "text", text: input.trim() });
             uiMessageParts.push({ type: "text", text: input.trim() });
+        }
+
+        // B2: adjuntar la configuración DocGen al mensaje real cuando Visual BI está activo.
+        const docGenVisualBI = globalStore.get(this.docGenVisualBI);
+        const docGenScope = globalStore.get(this.docGenScope);
+        const docGenMode = globalStore.get(this.docGenMode);
+        const docGenFormat = globalStore.get(this.docGenFormat);
+        if (docGenVisualBI || docGenFormat !== "none") {
+            const docGenNote =
+                `\n[docgen] visualBI=${docGenVisualBI ? "on" : "off"} ` +
+                `scope=${docGenScope} mode=${docGenMode} format=${docGenFormat}`;
+            const notePart: AIMessagePart = { type: "text", text: docGenNote.trim() };
+            aiMessageParts.push(notePart);
         }
 
         for (const droppedFile of droppedFiles) {
