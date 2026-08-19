@@ -75,6 +75,7 @@ import { blockViewToIcon, blockViewToName } from "./blockutil";
 import { DashboardViewModel } from "@/app/view/dashboard/dashboard-model";
 import { BrainViewModel } from "@/app/view/brain/brain-model";
 import { ToolsAdminViewModel } from "@/app/view/toolsadmin/toolsadmin-model";
+import { GulinMapViewModel } from "@/app/view/gulinmap/gulinmap";
 
 const BlockRegistry: Map<string, ViewModelClass> = new Map();
 BlockRegistry.set("term", TermViewModel);
@@ -126,6 +127,7 @@ BlockRegistry.set("sql-flow", SqlFlowViewModel);
 BlockRegistry.set("brain", BrainViewModel);
 BlockRegistry.set("auto-agents", AutoAgentsViewModel);
 BlockRegistry.set("tools-admin", ToolsAdminViewModel);
+BlockRegistry.set("gulin-map", GulinMapViewModel);
 
 function makeViewModel(blockId: string, blockView: string, nodeModel: BlockNodeModel, tabModel: TabModel): ViewModel {
     const ctor = BlockRegistry.get(blockView);
@@ -269,6 +271,10 @@ const BlockFull = memo(({ nodeModel, viewModel }: FullBlockProps) => {
         if (innerRect?.width && innerRect.height && blockContentOffset) {
             retVal.width = `calc(${innerRect?.width} - ${blockContentOffset.width}px)`;
             retVal.height = `calc(${innerRect?.height} - ${blockContentOffset.height}px)`;
+        } else {
+            retVal.width = "100%";
+            retVal.height = "100%";
+            retVal.flex = "1";
         }
         return retVal;
     }, [innerRect, disablePointerEvents, blockContentOffset]);

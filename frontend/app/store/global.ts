@@ -409,10 +409,6 @@ async function createBlock(blockDef: BlockDef, magnified = false, ephemeral = fa
     const layoutModel = getLayoutModelForStaticTab();
     const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
     const blockId = await ObjectService.CreateBlock(blockDef, rtOpts);
-    if (ephemeral) {
-        layoutModel.newEphemeralNode(blockId);
-        return blockId;
-    }
     const insertNodeAction: LayoutTreeInsertNodeAction = {
         type: LayoutTreeActionType.InsertNode,
         node: newLayoutNode(undefined, undefined, undefined, { blockId }),

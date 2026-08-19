@@ -535,6 +535,9 @@ export class GulinBrowserWindow extends BaseWindow {
                 switch (entry.op) {
                     case "createtab":
                         tabId = await WorkspaceService.CreateTab(this.workspaceId, null, true);
+                        if (this.isDestroyed()) {
+                            return;
+                        }
                         break;
                     case "switchtab":
                         tabId = entry.tabId;
@@ -543,11 +546,17 @@ export class GulinBrowserWindow extends BaseWindow {
                         }
                         if (entry.setInBackend) {
                             await WorkspaceService.SetActiveTab(this.workspaceId, tabId);
+                            if (this.isDestroyed()) {
+                                return;
+                            }
                         }
                         break;
                     case "closetab": {
                         tabId = entry.tabId;
                         const rtn = await WorkspaceService.CloseTab(this.workspaceId, tabId, true);
+                        if (this.isDestroyed()) {
+                            return;
+                        }
                         if (rtn == null) {
                             console.log(
                                 "[error] closeTab: no return value",
@@ -570,6 +579,9 @@ export class GulinBrowserWindow extends BaseWindow {
                     }
                     case "switchworkspace": {
                         const newWs = await WindowService.SwitchWorkspace(this.gulinWindowId, entry.workspaceId);
+                        if (this.isDestroyed()) {
+                            return;
+                        }
                         if (!newWs) {
                             return;
                         }
@@ -586,8 +598,14 @@ export class GulinBrowserWindow extends BaseWindow {
                     return;
                 }
                 const [tabView, tabInitialized] = await getOrCreateWebViewForTab(this.gulinWindowId, tabId);
+                if (this.isDestroyed()) {
+                    return;
+                }
                 const primaryStartupTabFlag = entry.op === "switchtab" ? (entry.primaryStartupTab ?? false) : false;
                 await this.setTabViewIntoWindow(tabView, tabInitialized, primaryStartupTabFlag);
+                if (this.isDestroyed()) {
+                    return;
+                }
             } catch (e) {
                 console.log("error caught in processActionQueue", e);
             } finally {

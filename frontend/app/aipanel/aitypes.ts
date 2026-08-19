@@ -59,6 +59,14 @@ type GulinUIDataTypes = {
         message: string;
         ts: number;
     };
+    "data-bi": {
+        data: any[];
+        columns: string[];
+        chartType?: string;
+        title?: string;
+        sql?: string;
+        narrative?: string;
+    };
 };
 
 export type GulinUIMessage = UIMessage<any, GulinUIDataTypes, any>;

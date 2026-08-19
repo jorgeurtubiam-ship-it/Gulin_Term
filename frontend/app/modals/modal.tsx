@@ -68,7 +68,7 @@ const Modal = forwardRef<HTMLDivElement, ModalProps>(
             </div>
         );
 
-        return ReactDOM.createPortal(renderModal(), document.getElementById("main"));
+        return ReactDOM.createPortal(renderModal(), document.getElementById("main") ?? document.body);
     }
 );
 
@@ -139,7 +139,7 @@ const FlexiModal = forwardRef<HTMLDivElement, FlexiModalProps>(
             </div>
         );
 
-        return ReactDOM.createPortal(renderModal(), document.getElementById("main")!);
+        return ReactDOM.createPortal(renderModal(), document.getElementById("main") ?? document.body);
     }
 );
 

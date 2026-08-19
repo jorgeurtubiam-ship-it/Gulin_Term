@@ -49,6 +49,12 @@ export function blockViewToIcon(view: string): string {
     if (view == "dashboard") {
         return "chart-pie";
     }
+    if (view == "gulin-map") {
+        return "diagram-project";
+    }
+    if (view == "brain") {
+        return "brain";
+    }
     return "square";
 }
 
@@ -91,6 +97,12 @@ export function blockViewToName(view: string): string {
     }
     if (view == "dashboard") {
         return "Dashboard";
+    }
+    if (view == "gulin-map") {
+        return "Data Catalog";
+    }
+    if (view == "brain") {
+        return "Neural Brain";
     }
     return view;
 }

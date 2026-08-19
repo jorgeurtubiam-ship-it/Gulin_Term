@@ -149,7 +149,7 @@ const AppsFloatingWindow = memo(
                             <div
                                 className="flex flex-col items-center justify-center p-2 rounded hover:bg-hoverbg cursor-pointer transition-colors"
                                 onClick={() => {
-                                    createBlock({ meta: { view: "service-map" } }, true);
+                                    createBlock({ meta: { view: "service-map" } }, false);
                                     onClose();
                                 }}
                             >
@@ -161,7 +161,7 @@ const AppsFloatingWindow = memo(
                             <div
                                 className="flex flex-col items-center justify-center p-2 rounded hover:bg-hoverbg cursor-pointer transition-colors"
                                 onClick={() => {
-                                    createBlock({ meta: { view: "tools-admin" } }, true);
+                                    createBlock({ meta: { view: "tools-admin" } }, false);
                                     onClose();
                                 }}
                             >
@@ -173,7 +173,7 @@ const AppsFloatingWindow = memo(
                             <div
                                 className="flex flex-col items-center justify-center p-2 rounded hover:bg-hoverbg cursor-pointer transition-colors"
                                 onClick={() => {
-                                    createBlock({ meta: { view: "brain" } }, true);
+                                    createBlock({ meta: { view: "brain" } }, false);
                                     onClose();
                                 }}
                             >
@@ -200,7 +200,7 @@ const AppsFloatingWindow = memo(
                                                     "tsunami:appid": app.appid,
                                                 },
                                             };
-                                            createBlock(blockDef, true);
+                                            createBlock(blockDef, false);
                                             onClose();
                                         }}
                                     >

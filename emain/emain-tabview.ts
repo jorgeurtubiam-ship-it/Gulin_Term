@@ -187,10 +187,6 @@ export class GulinTabView extends WebContentsView {
                     }, 5000);
                 `).catch(e => console.error("[debug] executeJS failed:", e));
             });
-            this.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
-                console.error("[debug] did-fail-load:", errorCode, errorDescription);
-            });
-            this.webContents.openDevTools({ mode: 'bottom' });
         } else {
             this.webContents.loadFile(path.join(getElectronAppBasePath(), "frontend", "index.html"));
         }

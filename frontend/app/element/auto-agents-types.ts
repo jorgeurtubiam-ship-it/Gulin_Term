@@ -12,6 +12,9 @@ export interface AgentData {
     system_prompt: string;
     color: string;
     enabled: boolean;
+    tools?: string[];
+    skills?: string[];
+    log_file?: string;
     lastStatus?: "idle" | "running" | "success" | "error";
     lastResult?: string;
     lastRun?: string;
@@ -37,4 +40,24 @@ export interface AgentChatMessage {
     text: string;
     timestamp: string;
     is_group?: boolean;
+}
+
+// C1: Tipos para Swarm Canvas (Flujo Real)
+export type NodeType = "agent" | "condition" | "router" | "loop" | "evaluate" | "extract";
+
+export interface NodeData {
+    type: NodeType;
+    id: string;
+    label: string;
+    config?: any; // Configuraciones específicas del nodo
+    status?: "idle" | "running" | "success" | "error";
+    lastResult?: any; // Datos reales procesados
+}
+
+export interface EdgeData {
+    id: string;
+    source: string;
+    target: string;
+    label?: string; // Etiqueta del edge ("true", "false", "item", etc.)
+    sourceHandle?: string;
 }

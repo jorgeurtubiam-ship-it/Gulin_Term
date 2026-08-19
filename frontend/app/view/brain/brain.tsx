@@ -188,7 +188,6 @@ const BrainViewComponent: React.FC<{ model: BrainViewModel; blockId: string }> =
 
     useEffect(() => {
         refreshData();
-        const pollInterval = setInterval(refreshData, 10000);
         
         const es = new EventSource(`${BRAIN_BASE_URL}/gulin/brain/events`);
         es.onmessage = (event) => {
@@ -202,7 +201,6 @@ const BrainViewComponent: React.FC<{ model: BrainViewModel; blockId: string }> =
         
         return () => {
             es.close();
-            clearInterval(pollInterval);
         };
     }, [refreshData]);
 

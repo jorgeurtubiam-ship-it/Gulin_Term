@@ -203,7 +203,11 @@ func GetChatListFromDB() ([]ChatSummary, error) {
 				chat_id as chatid, 
 				MAX(created_at) as lastupdate, 
 				model, 
-				(SELECT content FROM chat_message cm2 WHERE cm2.chat_id = chat_message.chat_id ORDER BY created_at DESC LIMIT 1) as snippet,
+				COALESCE(
+					(SELECT content FROM chat_message cm2 WHERE cm2.chat_id = chat_message.chat_id AND cm2.role = 'user' AND cm2.content NOT LIKE '{%' AND cm2.content NOT LIKE 'Command sent to%' ORDER BY created_at ASC LIMIT 1),
+					(SELECT content FROM chat_message cm2 WHERE cm2.chat_id = chat_message.chat_id AND cm2.content NOT LIKE '{%' ORDER BY created_at ASC LIMIT 1),
+					(SELECT content FROM chat_message cm2 WHERE cm2.chat_id = chat_message.chat_id ORDER BY created_at DESC LIMIT 1)
+				) as snippet,
 				COUNT(*) as messagecount
 			FROM chat_message 
 			GROUP BY chat_id 

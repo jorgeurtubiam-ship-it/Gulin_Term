@@ -417,21 +417,21 @@ export const AIExpertStatus = memo(({ part }: AIExpertStatusProps) => {
     const isRunning = status === "running";
 
     return (
-        <div className="flex flex-col gap-1 p-2 rounded bg-indigo-900/40 border border-indigo-700/50 my-2">
+        <div className="flex flex-col gap-1 p-2 rounded-2xl bg-teal-900/10 border border-teal-700/30 my-2">
             <div className="flex items-center gap-2">
                 {isRunning ? (
-                    <i className="fa fa-robot fa-spin text-indigo-400"></i>
+                    <i className="fa fa-robot fa-spin text-teal-400"></i>
                 ) : (
-                    <i className="fa fa-check-circle text-green-400"></i>
+                    <i className="fa fa-check-circle text-teal-500"></i>
                 )}
-                <div className="font-semibold text-indigo-200">
+                <div className="font-semibold text-teal-200">
                     {(expertid || "expert").replace("_", " ").toUpperCase()}
                 </div>
-                <div className="text-xs text-indigo-300 ml-auto">
+                <div className="text-xs text-teal-300 ml-auto">
                     {isRunning ? "TRABAJANDO..." : "COMPLETADO"}
                 </div>
             </div>
-            {task && <div className="text-sm text-indigo-100 pl-6 italic">"{task}"</div>}
+            {task && <div className="text-sm text-teal-100/70 pl-6 italic">"{task}"</div>}
         </div>
     );
 });
@@ -559,6 +559,7 @@ interface AIToolUseGroupProps {
     isStreaming: boolean;
     seenBlockIds?: Set<string>;
     reasoning?: string;
+    forceExpanded?: boolean;
 }
 
 type ToolGroupItem =
@@ -619,7 +620,8 @@ function formatRunTime(ms: number): string {
     return `${(ms / 1000).toFixed(1)}s`;
 }
 
-const ActionSummaryBanner = memo(({ parts, isExpanded, onToggle, children }: { parts: Array<GulinUIMessagePart & { type: "data-tooluse" }>, isExpanded?: boolean, onToggle?: () => void, children?: React.ReactNode }) => {
+const ActionSummaryBanner = memo(({ parts, children }: { parts: Array<GulinUIMessagePart & { type: "data-tooluse" }>, children?: React.ReactNode }) => {
+    const { t } = useTranslation();
     const validParts = parts.filter(p => p?.data?.toolname);
     if (validParts.length === 0) return null;
 
@@ -642,88 +644,56 @@ const ActionSummaryBanner = memo(({ parts, isExpanded, onToggle, children }: { p
     if (!isAllDone) return null;
 
     return (
-        <div className="mt-3 pt-2 border-t border-white/10">
-            <div className="bg-zinc-900/60 border border-zinc-700/50 rounded-lg overflow-hidden shadow-sm">
-                {/* Header */}
-                <div 
-                    className="flex items-center gap-2 px-3 py-2 bg-zinc-800/80 border-b border-zinc-700/50 cursor-pointer hover:bg-zinc-700/80 transition-colors"
-                    onClick={onToggle}
-                >
-                    <i className={cn("fa", isExpanded ? "fa-chevron-down" : "fa-chevron-right", "text-zinc-400 text-[10px] w-3 text-center")} />
-                    {errorCount > 0 ? (
-                        <span className="text-amber-400 text-sm">⚠️</span>
-                    ) : (
-                        <span className="text-emerald-400 text-sm">✓</span>
-                    )}
-                    <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-                        Acciones ejecutadas ({validParts.length})
-                    </span>
-                    {!isExpanded && (
-                        <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
-                            <span className="flex items-center gap-1">
-                                <span className="text-emerald-500">{successCount}</span> éxito
-                                {errorCount > 0 && (
-                                    <><span className="text-zinc-600">·</span><span className="text-red-400">{errorCount}</span> error</>
+        <div className="space-y-3">
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                {children || summaryTools.map((tool, idx) => (
+                    <div key={idx} className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-xs">
+                            <span className="w-4 text-center">{tool.icon}</span>
+                            <code className="text-zinc-300 font-mono text-[11px]">{tool.toolname}</code>
+                            <span className="ml-auto flex items-center gap-1">
+                                {tool.status === "completed" && (
+                                    <span className="text-emerald-500">✓</span>
+                                )}
+                                {tool.status === "error" && (
+                                    <span className="text-red-400" title={tool.errormessage}>✗</span>
+                                )}
+                                {tool.status === "pending" && (
+                                    <span className="text-yellow-400">⋯</span>
+                                )}
+                                {tool.runts != null && (
+                                    <span className="text-zinc-500 font-mono">{formatRunTime(tool.runts)}</span>
                                 )}
                             </span>
                         </div>
-                    )}
-                </div>
-                {/* Body */}
-                {isExpanded && (
-                    <div className="px-3 py-2 space-y-2">
-                        {children || summaryTools.map((tool, idx) => (
-                            <div key={idx} className="flex flex-col gap-1">
-                                <div className="flex items-center gap-2 text-xs">
-                                    <span className="w-4 text-center">{tool.icon}</span>
-                                    <code className="text-zinc-300 font-mono text-[11px]">{tool.toolname}</code>
-                                    <span className="ml-auto flex items-center gap-1">
-                                        {tool.status === "completed" && (
-                                            <span className="text-emerald-500">✓</span>
-                                        )}
-                                        {tool.status === "error" && (
-                                            <span className="text-red-400" title={tool.errormessage}>✗</span>
-                                        )}
-                                        {tool.status === "pending" && (
-                                            <span className="text-yellow-400">⋯</span>
-                                        )}
-                                        {tool.runts != null && (
-                                            <span className="text-zinc-500 font-mono">{formatRunTime(tool.runts)}</span>
-                                        )}
-                                    </span>
-                                </div>
-                                {tool.tooldesc && (
-                                    <div className="pl-6 ml-1.5 border-l-2 border-zinc-700/50">
-                                        <ToolDesc text={tool.tooldesc} className="text-[11px] text-zinc-400" />
-                                    </div>
-                                )}
-                                {tool.errormessage && (
-                                    <div className="pl-6 ml-1.5 border-l-2 border-red-500/30">
-                                        <div className="text-[11px] text-red-300/80 break-words font-mono bg-red-500/5 p-1.5 rounded-sm">
-                                            {tool.errormessage}
-                                        </div>
-                                    </div>
-                                )}
+                        {tool.tooldesc && (
+                            <div className="pl-6 ml-1.5 border-l border-zinc-700/50">
+                                <ToolDesc text={tool.tooldesc} className="text-[11px] text-zinc-400" />
                             </div>
-                        ))}
+                        )}
+                        {tool.errormessage && (
+                            <div className="pl-6 ml-1.5 border-l border-red-500/30">
+                                <div className="text-[11px] text-red-300/80 break-words font-mono bg-red-500/5 p-1.5 rounded-sm">
+                                    {tool.errormessage}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                )}
-                {/* Footer summary */}
-                {isExpanded && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/40 border-t border-zinc-700/30 text-[11px] text-zinc-500">
-                        <span className="flex items-center gap-1">
-                            <i className="fa fa-clock-o" />
-                            {totalTime > 0 ? formatRunTime(totalTime) : "—"}
-                        </span>
-                        <span className="text-zinc-600">|</span>
-                        <span className="flex items-center gap-1">
-                            <span className="text-emerald-500">{successCount}</span> éxito
-                            {errorCount > 0 && (
-                                <><span className="text-zinc-600">·</span><span className="text-red-400">{errorCount}</span> error</>
-                            )}
-                        </span>
-                    </div>
-                )}
+                ))}
+            </div>
+            {/* Footer summary */}
+            <div className="flex items-center gap-2 pt-2 border-t border-white/5 text-[11px] text-zinc-500">
+                <span className="flex items-center gap-1">
+                    <i className="fa fa-clock-o" />
+                    {totalTime > 0 ? formatRunTime(totalTime) : "—"}
+                </span>
+                <span className="text-zinc-600">|</span>
+                <span className="flex items-center gap-1">
+                    <span className="text-emerald-500">{successCount}</span> éxito
+                    {errorCount > 0 && (
+                        <><span className="text-zinc-600">·</span><span className="text-red-400">{errorCount}</span> {t("gulin.ai.tool.errors")}</>
+                    )}
+                </span>
             </div>
         </div>
     );
@@ -731,10 +701,10 @@ const ActionSummaryBanner = memo(({ parts, isExpanded, onToggle, children }: { p
 
 ActionSummaryBanner.displayName = "ActionSummaryBanner";
 
-export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasoning }: AIToolUseGroupProps) => {
+export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasoning, forceExpanded }: AIToolUseGroupProps) => {
     const { t } = useTranslation();
     const compactMode = useAtomValue(getSettingsKeyAtom("gulin.ai.compact.mode"));
-    const [isExpanded, setIsExpanded] = useState(true);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     const tooluseParts = parts.filter((p) => p.type === "data-tooluse") as Array<
         GulinUIMessagePart & { type: "data-tooluse" }
@@ -870,11 +840,13 @@ export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasonin
 
     const totalCount = safeToolUseParts.length;
     const errorCount = safeToolUseParts.filter(p => p.data?.status === "error").length;
+    const successCount = safeToolUseParts.filter(p => p.data?.status === "completed").length;
+    const totalTime = safeToolUseParts.reduce((acc, p) => acc + (p.data?.runts || 0), 0);
 
     // Modo compacto: solo un inline "🔧 N tools"
-    if (compactMode && !isStreaming && isAllDone) {
+    if (compactMode && !isStreaming && isAllDone && !forceExpanded) {
         return (
-            <div className="mt-2 text-xs text-zinc-500 flex items-center gap-1.5">
+            <div className="my-1 text-xs text-zinc-500 flex items-center gap-1.5 select-none">
                 <span>🔧</span>
                 <span>{totalCount} {t("gulin.ai.tool.tools")}</span>
                 {errorCount > 0 && (
@@ -884,21 +856,77 @@ export const AIToolUseGroup = memo(({ parts, isStreaming, seenBlockIds, reasonin
         );
     }
 
-      return (
-          <>
-              {isAllDone ? (
-                  <ActionSummaryBanner 
-                      parts={tooluseParts} 
-                      isExpanded={isExpanded} 
-                      onToggle={() => setIsExpanded(!isExpanded)}
-                  />
-              ) : (
-                  <>
-                      {renderedItems}
-                  </>
-              )}
-          </>
-      );
+    // forceExpanded: render bare detail list (used when embedded in AIMessageToolsSummary)
+    if (forceExpanded) {
+        return (
+            <div className="space-y-1.5">
+                {isAllDone ? (
+                    <ActionSummaryBanner parts={tooluseParts} />
+                ) : (
+                    renderedItems
+                )}
+            </div>
+        );
+    }
+
+    // Si todo terminó y está colapsado (Diseño ultra-limpio tipo texto inline)
+    if (isAllDone && !isExpanded) {
+        return (
+            <div 
+                className="my-1.5 flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors select-none w-fit group font-sans animate-fade-in"
+                onClick={() => setIsExpanded(true)}
+            >
+                <i className="fa-solid fa-chevron-right text-[8px] text-zinc-500 group-hover:text-zinc-300 transition-colors w-2 text-center" />
+                <i className="fa-solid fa-microchip text-zinc-400 text-[10px] group-hover:text-teal-400 transition-colors" />
+                <span>
+                    {t("gulin.ai.tool.execution")} ({totalCount})
+                </span>
+                <span className="text-zinc-700">|</span>
+                <span className="flex items-center gap-1.5 text-[11px]">
+                    {errorCount > 0 ? (
+                        <span className="text-red-400/90 flex items-center gap-1">
+                            <span>✗</span> {errorCount} {errorCount === 1 ? "error" : "errores"}
+                        </span>
+                    ) : (
+                        <span className="text-emerald-500/90 flex items-center gap-1">
+                            <span>✓</span> {successCount} {successCount === 1 ? "éxito" : "éxitos"}
+                        </span>
+                    )}
+                    {totalTime > 0 && (
+                        <span className="text-zinc-600 font-mono">({formatRunTime(totalTime)})</span>
+                    )}
+                </span>
+            </div>
+        );
+    }
+
+    // Si está expandido o en ejecución, mostramos el contenedor principal indentado (tipo Markdown/timeline)
+    return (
+        <div className="my-2.5 pl-4 border-l border-zinc-800/80 flex flex-col gap-2.5 animate-fade-in">
+            {/* Header interactivo para colapsar si ya terminó */}
+            <div 
+                className={cn(
+                    "text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 select-none",
+                    isAllDone ? "cursor-pointer hover:text-zinc-300 transition-colors" : ""
+                )}
+                onClick={isAllDone ? () => setIsExpanded(false) : undefined}
+            >
+                <i className={cn(
+                    "fa-solid text-[9px] w-2 text-center",
+                    isAllDone ? "fa-chevron-down text-zinc-500" : "fa-microchip animate-pulse text-teal-400"
+                )} />
+                <span>{t("gulin.ai.tool.execution")} ({totalCount})</span>
+            </div>
+
+            <div className="w-full pl-1">
+                {isAllDone ? (
+                    <ActionSummaryBanner parts={tooluseParts} />
+                ) : (
+                    renderedItems
+                )}
+            </div>
+        </div>
+    );
 });
 
 AIToolUseGroup.displayName = "AIToolUseGroup";

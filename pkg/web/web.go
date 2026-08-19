@@ -472,6 +472,7 @@ func RunWebServer(listener net.Listener) {
 	gulinRouter.HandleFunc("/gulin/brain/xp", WebFnWrap(WebFnOpts{AllowCaching: false}, gulinapp.HandlePostXP))
 	gulinRouter.HandleFunc("/gulin/brain/memory", WebFnWrap(WebFnOpts{AllowCaching: false}, gulinapp.HandleBrainMemory))
 	gulinRouter.HandleFunc("/gulin/brain/stream", gulinapp.HandleBrainStream)
+	gulinRouter.HandleFunc("/gulin/brain/chat", WebFnWrap(WebFnOpts{AllowCaching: false}, gulinapp.HandleBrainChat))
 	gulinRouter.HandleFunc("/gulin/plugin-list", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GulinAIPluginListHandler))
 	gulinRouter.HandleFunc("/gulin/plugin-read", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GulinAIPluginReadHandler))
 	gulinRouter.HandleFunc("/gulin/plugin-save", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GulinAIPluginSaveHandler))
@@ -486,6 +487,7 @@ func RunWebServer(listener net.Listener) {
 	gulinRouter.HandleFunc("/gulin/widgets-list", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, WidgetListHandler))
 	gulinRouter.HandleFunc("/gulin/widgets-save", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, WidgetSaveHandler))
 	gulinRouter.HandleFunc("/gulin/widgets-delete", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, WidgetDeleteHandler))
+	gulinRouter.HandleFunc("/gulin/voice-transcribe", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.GulinAIVoiceTranscribeHandler))
 	vdomRouter := mux.NewRouter()
 	vdomRouter.HandleFunc("/vdom/{uuid}/{path:.*}", WebFnWrap(WebFnOpts{AllowCaching: true}, handleVDom))
 

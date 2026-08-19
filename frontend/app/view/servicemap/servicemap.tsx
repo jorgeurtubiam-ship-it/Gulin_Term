@@ -24,6 +24,7 @@ interface ServiceNode {
     xp_value?: number;
     status_color?: string;
     metadata?: any;
+    description?: string;
 }
 
 interface ServiceEdge {
@@ -89,8 +90,8 @@ function ServiceMapView({ model, blockId }: { model: ServiceMapViewModel, blockI
         setLoading(true);
         try {
             const nodesJson = await RpcApi.PathCommand(TabRpcClient, {
-                pathType: "sql:SELECT id, label, type, status, icon, x, y, description, parent_id, xp_value, status_color, metadata FROM infra_nodes ORDER BY id ASC",
-                tabId: model.tabModel.tabId
+                pathtype: "sql:SELECT id, label, type, status, icon, x, y, description, parent_id, xp_value, status_color, metadata FROM infra_nodes ORDER BY id ASC",
+                tabid: model.tabModel.tabId
             });
             
             if (nodesJson) {
@@ -134,8 +135,8 @@ function ServiceMapView({ model, blockId }: { model: ServiceMapViewModel, blockI
             }
             
             const edgesJson = await RpcApi.PathCommand(TabRpcClient, {
-                pathType: "sql:SELECT source, target, traffic FROM infra_edges",
-                tabId: model.tabModel.tabId
+                pathtype: "sql:SELECT source, target, traffic FROM infra_edges",
+                tabid: model.tabModel.tabId
             });
             if (edgesJson) {
                 const edgesData = JSON.parse(edgesJson);
@@ -163,8 +164,8 @@ function ServiceMapView({ model, blockId }: { model: ServiceMapViewModel, blockI
         if (nodeId === 'debug-check') return;
         try {
             await RpcApi.PathCommand(TabRpcClient, {
-                pathType: `sql:UPDATE infra_nodes SET x = ${Math.round(x)}, y = ${Math.round(y)} WHERE id = '${nodeId}'`,
-                tabId: model.tabModel.tabId
+                pathtype: `sql:UPDATE infra_nodes SET x = ${Math.round(x)}, y = ${Math.round(y)} WHERE id = '${nodeId}'`,
+                tabid: model.tabModel.tabId
             });
         } catch (e) {
             console.error("Error saving position", e);

@@ -26,7 +26,7 @@ import { getWebServerEndpoint } from "@/util/endpoints";
 
 const CONFIG_PATH = "agents_autonomos.json";
 
-declare var window: any;
+declare let window: any;
 
 async function getConfigDir(): Promise<string> {
     return window.api.getConfigDir();
@@ -42,24 +42,45 @@ const CustomAgentNode = ({ data }: any) => {
     const logs = messages.filter((m: any) => m.role === "assistant" && m.text.includes("[⚙️")).map((m:any) => m.text).join("\n\n") || "No hay logs de herramientas aún...";
 
     return (
-        <div className={`bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-2xl transition-all duration-200 ${isExpanded ? 'w-[600px] h-[750px] flex flex-col' : 'w-[250px]'}`}>
+        <div className={`bg-gray-900/95 border border-gray-700 hover:border-indigo-500/80 rounded-xl p-3.5 shadow-2xl backdrop-blur-md transition-all duration-200 ${isExpanded ? 'w-[600px] h-[750px] flex flex-col' : 'w-[280px]'}`}>
             <Handle type="target" position={Position.Left} className="w-3 h-3 bg-indigo-500" />
-            <div className="flex items-center justify-between mb-2 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-                <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${data.status === 'running' ? 'bg-yellow-400 animate-pulse' : data.status === 'success' ? 'bg-green-500' : data.status === 'error' ? 'bg-red-500' : 'bg-gray-500'}`}></div>
-                    <div className="text-white font-medium text-base">{data.label}</div>
+            <div className="flex items-start justify-between mb-2 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-2xl shrink-0">{data.icon || "🤖"}</span>
+                    <div className="min-w-0">
+                        <div className="text-white font-semibold text-sm truncate">{data.label}</div>
+                        {/* Modelo de IA badge */}
+                        <div className="text-[11px] text-indigo-300 font-mono flex items-center gap-1.5 mt-0.5 truncate">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0"></span>
+                            <span className="truncate">{data.modelName || data.provider || "Modelo IA"}</span>
+                        </div>
+                    </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <div className={`w-2.5 h-2.5 rounded-full ${data.status === 'running' ? 'bg-yellow-400 animate-pulse' : data.status === 'success' ? 'bg-green-500' : data.status === 'error' ? 'bg-red-500' : 'bg-gray-500'}`} title={data.status || 'idle'}></div>
                     {data.onConfigClick && (
-                        <button onClick={(e) => { e.stopPropagation(); data.onConfigClick(); }} className="text-gray-400 hover:text-white" title="Configuración">⚙️</button>
+                        <button onClick={(e) => { e.stopPropagation(); data.onConfigClick(); }} className="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-800 transition-colors" title="Configurar Agente">⚙️</button>
                     )}
-                    <button className="text-gray-400 hover:text-white" title={isExpanded ? "Colapsar" : "Expandir"}>
+                    <button className="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-800 transition-colors" title={isExpanded ? "Colapsar" : "Expandir"}>
                         {isExpanded ? '🗕' : '🗖'}
                     </button>
                 </div>
             </div>
             {!isExpanded ? (
-                <div className="text-sm text-gray-400 mt-1">{data.status === 'running' ? 'Procesando...' : data.status === 'idle' ? 'Inactivo' : data.status === 'success' ? 'Terminado' : 'Error'}</div>
+                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-gray-700/60 text-xs">
+                    <span className={`text-[11px] font-medium flex items-center gap-1 ${data.status === 'running' ? 'text-yellow-400 font-semibold' : data.status === 'success' ? 'text-green-400' : data.status === 'error' ? 'text-red-400' : 'text-gray-400'}`}>
+                        {data.status === 'running' ? '⚡ Procesando...' : data.status === 'idle' ? '💤 Inactivo' : data.status === 'success' ? '✓ Listo' : '❌ Error'}
+                    </span>
+                    {data.skills && data.skills.length > 0 ? (
+                        <span className="text-[10px] bg-indigo-950/80 border border-indigo-700/50 px-1.5 py-0.5 rounded text-indigo-300">
+                            {data.skills.length} skills
+                        </span>
+                    ) : data.tools && data.tools.length > 0 ? (
+                        <span className="text-[10px] bg-gray-800 border border-gray-700 px-1.5 py-0.5 rounded text-gray-300">
+                            {data.tools.length} tools
+                        </span>
+                    ) : null}
+                </div>
             ) : (
                 <>
                     <div className="flex gap-4 border-b border-gray-600 mb-2 px-1">
@@ -110,43 +131,88 @@ const CustomAgentNode = ({ data }: any) => {
     );
 };
 
+// C1: Nuevos nodos del flujo
+const ConditionNode = ({ data }: any) => {
+    return (
+        <div className="bg-zinc-800 border border-amber-500 rounded-lg p-3 shadow-lg w-[200px]">
+            <Handle type="target" position={Position.Top} className="w-3 h-3 bg-amber-500" />
+            <div className="flex items-center gap-2 mb-2 border-b border-zinc-700 pb-1">
+                <i className="fa-solid fa-code-branch text-amber-500"></i>
+                <div className="text-white font-bold text-sm">Condition</div>
+            </div>
+            <div className="text-xs text-zinc-400 mb-2">{data.label || "If condition is met"}</div>
+            <Handle type="source" position={Position.Bottom} id="true" className="w-3 h-3 bg-green-500 left-1/4" />
+            <Handle type="source" position={Position.Bottom} id="false" className="w-3 h-3 bg-red-500 left-3/4" />
+            <div className="flex justify-between text-[8px] text-zinc-500 mt-1">
+                <span>TRUE</span>
+                <span>FALSE</span>
+            </div>
+        </div>
+    );
+};
+
 const GroupChatPanel = ({ messages, onSendMessage }: { messages: any[], onSendMessage: (msg: string, id: string | null, isGroup: boolean) => void }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [input, setInput] = useState("");
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (isExpanded && chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+    }, [messages, isExpanded]);
 
     return (
-        <div className={`fixed bottom-4 right-4 z-50 bg-indigo-950 border border-indigo-500/50 rounded-lg shadow-2xl transition-all duration-300 flex flex-col overflow-hidden ${isExpanded ? 'w-[600px] h-[500px]' : 'w-[300px] h-[48px]'}`}>
-            <div className="flex items-center justify-between px-4 py-3 cursor-pointer bg-indigo-900/80 hover:bg-indigo-800/80 transition-colors" onClick={() => setIsExpanded(!isExpanded)}>
+        <div className={`absolute bottom-4 right-4 z-50 bg-indigo-950/95 border border-indigo-500/50 rounded-xl shadow-2xl backdrop-blur-md transition-all duration-300 flex flex-col overflow-hidden max-h-[calc(100%-60px)] ${isExpanded ? 'w-[700px] h-[550px]' : 'w-[320px] h-[48px]'}`}>
+            <div className="flex items-center justify-between px-4 py-3 cursor-pointer bg-indigo-900/90 hover:bg-indigo-800 transition-colors border-b border-indigo-700/50 shrink-0" onClick={() => setIsExpanded(!isExpanded)}>
                 <div className="flex items-center gap-2">
                     <span className="text-xl">💬</span>
-                    <div className="text-white font-medium text-base">Chat Grupal</div>
+                    <div className="text-white font-semibold text-sm tracking-wide">Chat Grupal de Agentes</div>
                 </div>
-                <button className="text-indigo-300 hover:text-white">
-                    {isExpanded ? '▼' : '▲'}
-                </button>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs px-2 py-0.5 rounded bg-indigo-800 text-indigo-200 border border-indigo-600/40">
+                        {messages.length} mensajes
+                    </span>
+                    <button className="text-indigo-300 hover:text-white font-bold">
+                        {isExpanded ? '▼' : '▲'}
+                    </button>
+                </div>
             </div>
             {isExpanded && (
-                <div className="flex flex-col flex-1 bg-gray-900/90 p-3">
-                    <div className="flex-1 overflow-y-auto mb-3 space-y-3 pr-2">
+                <div className="flex flex-col flex-1 bg-gray-950/95 p-3 overflow-hidden min-h-0">
+                    <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar min-h-0" ref={chatContainerRef}>
                         {messages.length === 0 ? (
-                            <div className="text-gray-500 text-sm text-center py-4 flex flex-col items-center gap-2">
-                                <span className="text-3xl opacity-50">🤖</span>
-                                Mensaje para todos los agentes
+                            <div className="text-gray-500 text-sm text-center py-12 flex flex-col items-center gap-3">
+                                <span className="text-4xl opacity-50">🤖</span>
+                                <span>Envía una misión para que todos los agentes respondan con sus modelos asignados.</span>
                             </div>
                         ) : (
                             messages.map((msg: any, i: number) => (
-                                <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
-                                    <div className={`px-3 py-2 rounded-lg text-sm max-w-[90%] shadow-md ${msg.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-200 border border-gray-700"}`}>
-                                        {msg.role === "assistant" && msg.agent_id && (
-                                            <div className="text-xs text-indigo-300 font-semibold mb-1 border-b border-gray-700/50 pb-1">{msg.agent_name || msg.agent_id}</div>
+                                <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} w-full`}>
+                                    <div className={`p-3 rounded-lg text-sm max-w-[95%] shadow-md border ${
+                                        msg.role === "user" 
+                                            ? "bg-indigo-600 border-indigo-500 text-white" 
+                                            : "bg-gray-900 border-gray-700/80 text-gray-200"
+                                    }`}>
+                                        {msg.role === "assistant" && (
+                                            <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-gray-700/60">
+                                                <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                                                    {msg.agent_name || msg.agent_id || "Agente"}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400 font-mono">
+                                                    {new Date(msg.timestamp).toLocaleTimeString()}
+                                                </span>
+                                            </div>
                                         )}
-                                        <div className="whitespace-pre-wrap">{msg.text}</div>
+                                        <div className="whitespace-pre-wrap leading-relaxed text-xs font-sans">
+                                            {msg.text}
+                                        </div>
                                     </div>
                                 </div>
                             ))
                         )}
                     </div>
-                    <div className="flex gap-2 shrink-0 bg-gray-800 p-2 rounded-lg border border-gray-700">
+                    <div className="flex gap-2 shrink-0 bg-gray-900/90 p-2 rounded-lg border border-gray-700/70 mt-2">
                         <input
                             type="text"
                             value={input}
@@ -158,10 +224,10 @@ const GroupChatPanel = ({ messages, onSendMessage }: { messages: any[], onSendMe
                                 }
                             }}
                             className="flex-1 px-3 py-2 bg-transparent text-sm focus:outline-none text-white placeholder-gray-400"
-                            placeholder="Mensaje para todos los agentes..."
+                            placeholder="Enviar orden para todos los agentes..."
                         />
-                        <button onClick={() => { onSendMessage(input, null, true); setInput(""); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors shadow-lg">
-                            Ejecutar
+                        <button onClick={() => { onSendMessage(input, null, true); setInput(""); }} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors shadow-lg flex items-center gap-1.5">
+                            <span>🚀</span> Ejecutar
                         </button>
                     </div>
                 </div>
@@ -169,6 +235,17 @@ const GroupChatPanel = ({ messages, onSendMessage }: { messages: any[], onSendMe
         </div>
     );
 };
+
+const AVAILABLE_SKILLS = [
+    { id: "security-and-hardening", name: "🛡️ Seguridad & Hardening", desc: "Auditoría de vulnerabilidades y normativas (Ley 21.719)" },
+    { id: "database-tuning", name: "🗄️ Optimización BD", desc: "Indexación, consultas y esquemas SQL" },
+    { id: "observability-and-instrumentation", name: "📊 Observabilidad & Logs", desc: "Métricas, tracing y análisis de logs" },
+    { id: "debugging-and-error-recovery", name: "🔍 Depuración de Errores", desc: "Diagnóstico profundo de fallos y stacktraces" },
+    { id: "api-and-interface-design", name: "🔌 APIs & Integración", desc: "REST, Graph API y contratos" },
+    { id: "ci-cd-and-automation", name: "⚡ Automatización CI/CD", desc: "Pipelines, scripts y despliegues" },
+    { id: "code-review-and-quality", name: "📝 Calidad de Código", desc: "Clean code, auditoría y refactor" },
+    { id: "git-workflow-and-versioning", name: "🐙 Git Workflow", desc: "Ramas, versiones y git ops" }
+];
 
 export function AutoAgentsWidget() {
     const [agents, setAgents] = useState<AgentData[]>([]);
@@ -184,7 +261,7 @@ export function AutoAgentsWidget() {
     const [nodes, setNodes] = useState<Node[]>([]);
     const [edges, setEdges] = useState<Edge[]>([]);
     const [agentStatuses, setAgentStatuses] = useState<Record<string, "idle" | "running" | "success" | "error">>({});
-    const nodeTypes = useRef({ agentNode: CustomAgentNode }).current;
+    const nodeTypes = useRef({ agentNode: CustomAgentNode, agent: CustomAgentNode, condition: ConditionNode }).current;
     
     // Additional state moved up
     const [isLoading, setIsLoading] = useState(true);
@@ -192,12 +269,13 @@ export function AutoAgentsWidget() {
     const [isDragging, setIsDragging] = useState(false);
     const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
     const aiConfigs = useAtomValue(atoms.gulinaiModeConfigAtom);
+    const currentTabId = useAtomValue(atoms.staticTabId);
     
     // Config getters
     const resolveApiKey = useCallback((providerKey: string) => {
         if (!aiConfigs) return "";
         if (aiConfigs[providerKey]) {
-            return aiConfigs[providerKey]["ai:apikey"] || aiConfigs[providerKey]["ai:apikey-secret"];
+            return aiConfigs[providerKey]["ai:apitoken"] || aiConfigs[providerKey]["ai:apikey"] || aiConfigs[providerKey]["ai:apikey-secret"] || "";
         }
         return "";
     }, [aiConfigs]);
@@ -205,7 +283,7 @@ export function AutoAgentsWidget() {
     const resolveEndpoint = useCallback((providerKey: string) => {
         if (!aiConfigs) return "";
         if (aiConfigs[providerKey]) {
-            return aiConfigs[providerKey]["ai:endpoint"];
+            return aiConfigs[providerKey]["ai:endpoint"] || aiConfigs[providerKey]["ai:baseurl"] || "";
         }
         return "";
     }, [aiConfigs]);
@@ -265,7 +343,7 @@ export function AutoAgentsWidget() {
             setAgentStatuses(prev => ({ ...prev, [agent.id]: "running" }));
             try {
                 let accumulatedResp = "";
-                await callAgentAPI(agent, finalPrompt, apiKey, endpoint, aiConfigs, (chunk: string, fullMsg: string) => {
+                await callAgentAPI(agent, finalPrompt, apiKey, endpoint, aiConfigs, currentTabId, (chunk: string, fullMsg: string) => {
                     accumulatedResp = fullMsg;
                     // Update the specific message in state
                     setChatMessages(prev => prev.map(msg => 
@@ -297,13 +375,36 @@ export function AutoAgentsWidget() {
             const enabledAgents = agents.filter(a => a.enabled);
             if (enabledAgents.length === 0) return;
 
-            enabledAgents.forEach(async (agent) => {
+            // Detección inteligente de menciones (@Nombre, Nombre del agente, alias o primer nombre)
+            const lowerPrompt = promptToUse.toLowerCase();
+            const mentionedAgents = enabledAgents.filter(a => {
+                const nameLower = a.name.toLowerCase();
+                const idLower = a.id.toLowerCase();
+                const nameNoUnderscore = nameLower.replace(/_/g, " ");
+                const firstName = nameLower.split(/[\s_]+/)[0];
+                return lowerPrompt.includes(nameLower) || 
+                       lowerPrompt.includes(`@${nameLower}`) || 
+                       lowerPrompt.includes(idLower) ||
+                       lowerPrompt.includes(`@${idLower}`) ||
+                       lowerPrompt.includes(nameNoUnderscore) ||
+                       lowerPrompt.includes(`@${nameNoUnderscore}`) ||
+                       (firstName.length > 2 && (lowerPrompt.includes(firstName) || lowerPrompt.includes(`@${firstName}`)));
+            });
+
+            // Si se menciona a uno o varios agentes específicos, solo responden ellos.
+            // Si es un mensaje general para el equipo, responden todos.
+            const targetAgents = mentionedAgents.length > 0 ? mentionedAgents : enabledAgents;
+
+            targetAgents.forEach(async (agent) => {
                 const apiKey = resolveApiKey(agent.provider) || agent.api_key_secret;
+                const configDisplay = aiConfigs?.[agent.provider]?.["display:name"] || aiConfigs?.[agent.provider]?.["ai:model"] || agent.model || agent.provider;
+                const fullAgentBadge = `${agent.icon || "🤖"} ${agent.name} [${configDisplay}]`;
+
                 if (!apiKey || apiKey.includes("_KEY")) {
                     const errorMsg: AgentChatMessage = {
                         role: "assistant",
                         agent_id: agent.id,
-                        agent_name: agent.name,
+                        agent_name: fullAgentBadge,
                         text: `Error: No se encontró la API Key para el proveedor '${agent.provider}'.`,
                         timestamp: new Date().toISOString(),
                         is_group: true
@@ -318,7 +419,7 @@ export function AutoAgentsWidget() {
                 const initialAgentMsg: AgentChatMessage = {
                     role: "assistant",
                     agent_id: agent.id,
-                    agent_name: agent.name,
+                    agent_name: fullAgentBadge,
                     text: "...",
                     timestamp: new Date().toISOString(),
                     is_group: true
@@ -326,20 +427,26 @@ export function AutoAgentsWidget() {
                 setChatMessages(prev => [...prev, { ...initialAgentMsg, _tempId: tempMsgId } as any]);
 
                 setAgentStatuses(prev => ({ ...prev, [agent.id]: "running" }));
+                const agentScopedPrompt = `[Eres ${agent.name} (${agent.icon})].
+El usuario ha enviado la siguiente misión al equipo:
+"${finalPrompt}"
+
+INSTRUCCIÓN: Responde ÚNICAMENTE desde tu especialidad y rol como ${agent.name}. NO hables ni respondas por los demás especialistas. Entrega tu diagnóstico directo en 2 o 3 líneas concisas.`;
+
                 try {
                     let accumulatedResp = "";
-                    await callAgentAPI(agent, finalPrompt, apiKey, endpoint, aiConfigs, (chunk: string, fullMsg: string) => {
+                    await callAgentAPI(agent, agentScopedPrompt, apiKey, endpoint, aiConfigs, currentTabId, (chunk: string, fullMsg: string) => {
                         accumulatedResp = fullMsg;
                         setChatMessages(prev => prev.map(msg => 
                             (msg as any)._tempId === tempMsgId 
-                                ? { ...msg, text: fullMsg } 
+                                ? { ...msg, text: fullMsg, agent_name: fullAgentBadge } 
                                 : msg
                         ));
                     });
                     
                     setChatMessages(prev => prev.map(msg => 
                         (msg as any)._tempId === tempMsgId 
-                            ? { role: "assistant", agent_id: agent.id, agent_name: agent.name, text: accumulatedResp, timestamp: new Date().toISOString(), is_group: true } 
+                            ? { role: "assistant", agent_id: agent.id, agent_name: fullAgentBadge, text: accumulatedResp, timestamp: new Date().toISOString(), is_group: true } 
                             : msg
                     ));
                     setAgentStatuses(prev => ({ ...prev, [agent.id]: "success" }));
@@ -348,7 +455,7 @@ export function AutoAgentsWidget() {
                     setAgentStatuses(prev => ({ ...prev, [agent.id]: "error" }));
                     setChatMessages(prev => prev.map(msg => 
                         (msg as any)._tempId === tempMsgId 
-                            ? { role: "assistant", agent_id: agent.id, agent_name: agent.name, text: `Error: ${err.message}`, timestamp: new Date().toISOString(), is_group: true } 
+                            ? { role: "assistant", agent_id: agent.id, agent_name: fullAgentBadge, text: `Error: ${err.message}`, timestamp: new Date().toISOString(), is_group: true } 
                             : msg
                     ));
                 }
@@ -378,34 +485,37 @@ export function AutoAgentsWidget() {
             // Add Agent Nodes
             agents.forEach((agent, i) => {
                 const existing = prevMap.get(agent.id);
+                const configDisplay = aiConfigs?.[agent.provider]?.["display:name"] || aiConfigs?.[agent.provider]?.["ai:model"] || agent.model || agent.provider;
+                const nodeData = {
+                    label: agent.name,
+                    icon: agent.icon || "🤖",
+                    modelName: configDisplay,
+                    provider: agent.provider,
+                    tools: agent.tools || [],
+                    skills: agent.skills || [],
+                    status: agentStatuses[agent.id] || "idle",
+                    messages: chatMessages.filter(m => !m.is_group && m.agent_id === agent.id),
+                    onSendMessage: sendMessage,
+                    agentId: agent.id,
+                    onConfigClick: () => { setSelectedAgentId(agent.id); setViewMode("edit"); }
+                };
+
                 newNodes.push(existing ? { 
                     ...existing, 
                     data: { 
                         ...existing.data, 
-                        label: agent.name, 
-                        status: agentStatuses[agent.id] || "idle",
-                        messages: chatMessages.filter(m => !m.is_group && m.agent_id === agent.id),
-                        onSendMessage: sendMessage,
-                        agentId: agent.id,
-                        onConfigClick: () => { setSelectedAgentId(agent.id); setViewMode("edit"); }
+                        ...nodeData
                     } 
                 } : {
                     id: agent.id,
                     type: 'agentNode',
                     position: { x: (i % 3) * 450 + 100, y: Math.floor(i / 3) * 300 + 100 },
-                    data: { 
-                        label: agent.name,
-                        status: agentStatuses[agent.id] || "idle",
-                        messages: chatMessages.filter(m => !m.is_group && m.agent_id === agent.id),
-                        onSendMessage: sendMessage,
-                        agentId: agent.id,
-                        onConfigClick: () => { setSelectedAgentId(agent.id); setViewMode("edit"); }
-                    }
+                    data: nodeData
                 });
             });
             return newNodes;
         });
-    }, [agents, agentStatuses, chatMessages, sendMessage]);
+    }, [agents, agentStatuses, chatMessages, sendMessage, aiConfigs]);
 
     const lastRunRef = useRef<Record<string, number>>({});
 
@@ -736,35 +846,76 @@ export function AutoAgentsWidget() {
                                     );
                                 })()}
 
-                                <div className="grid grid-cols-2 gap-6 pb-6 border-b border-gray-700">
-                                    <div className="flex flex-col">
-                                        <label className="text-xs text-gray-400 mb-1">Nombre</label>
-                                        <input type="text" onFocus={e => e.target.select()} value={selectedAgent.name} onChange={e => handleUpdateAgent({...selectedAgent, name: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" />
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <label className="text-xs text-gray-400 mb-1">Icono (Emoji)</label>
-                                        <input type="text" onFocus={e => e.target.select()} value={selectedAgent.icon} onChange={e => handleUpdateAgent({...selectedAgent, icon: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" />
-                                    </div>
-                                    <div className="col-span-2 flex flex-col">
-                                        <label className="text-xs text-gray-400 mb-1">System Prompt (Instrucciones)</label>
-                                        <textarea rows={5} value={selectedAgent.system_prompt} onChange={e => handleUpdateAgent({...selectedAgent, system_prompt: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none resize-none font-mono" />
-                                    </div>
+                            <div className="grid grid-cols-2 gap-6 pb-6 border-b border-gray-700">
+                                <div className="flex flex-col">
+                                    <label className="text-xs text-gray-400 mb-1">Nombre</label>
+                                    <input type="text" onFocus={e => e.target.select()} value={selectedAgent.name} onChange={e => handleUpdateAgent({...selectedAgent, name: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" />
                                 </div>
-                                
-                                <div className="flex justify-between pt-2">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); deleteAgent(selectedAgent.id); setViewMode("canvas"); }}
-                                        className="px-4 py-2 bg-red-900/50 hover:bg-red-800 text-red-200 rounded text-sm transition-colors"
-                                    >
-                                        Eliminar Agente
-                                    </button>
-                                    <button
-                                        onClick={() => setViewMode("canvas")}
-                                        className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-sm font-medium transition-colors"
-                                    >
-                                        Guardar y Cerrar
-                                    </button>
+                                <div className="flex flex-col">
+                                    <label className="text-xs text-gray-400 mb-1">Icono (Emoji)</label>
+                                    <input type="text" onFocus={e => e.target.select()} value={selectedAgent.icon} onChange={e => handleUpdateAgent({...selectedAgent, icon: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none" />
                                 </div>
+                                <div className="col-span-2 flex flex-col">
+                                    <label className="text-xs text-gray-400 mb-1">System Prompt (Instrucciones)</label>
+                                    <textarea rows={4} value={selectedAgent.system_prompt} onChange={e => handleUpdateAgent({...selectedAgent, system_prompt: e.target.value})} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none resize-none font-mono" />
+                                </div>
+                            </div>
+                            
+                            {/* Selector de Skills / Habilidades */}
+                            <div className="flex flex-col gap-2 pb-6 border-b border-gray-700">
+                                <label className="text-xs text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                                    <span>🛠️</span> Habilidades Especializadas (Skills)
+                                </label>
+                                <p className="text-[11px] text-gray-400 mb-1">Selecciona las habilidades y protocolos metodológicos que domina este agente:</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {AVAILABLE_SKILLS.map(skill => {
+                                        const isSelected = (selectedAgent.skills || []).includes(skill.id);
+                                        return (
+                                            <div 
+                                                key={skill.id}
+                                                onClick={() => {
+                                                    const currentSkills = selectedAgent.skills || [];
+                                                    const newSkills = isSelected 
+                                                        ? currentSkills.filter(s => s !== skill.id)
+                                                        : [...currentSkills, skill.id];
+                                                    handleUpdateAgent({ ...selectedAgent, skills: newSkills });
+                                                }}
+                                                className={`p-2.5 rounded-lg border cursor-pointer transition-all flex items-start gap-2 ${
+                                                    isSelected 
+                                                        ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md shadow-indigo-950/50" 
+                                                        : "bg-gray-800/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-200"
+                                                }`}
+                                            >
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={isSelected} 
+                                                    onChange={() => {}} // handled by parent onClick
+                                                    className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 bg-gray-900 border-gray-700" 
+                                                />
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs font-semibold">{skill.name}</span>
+                                                    <span className="text-[10px] text-gray-500 leading-tight">{skill.desc}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            
+                            <div className="flex justify-between pt-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); deleteAgent(selectedAgent.id); setViewMode("canvas"); }}
+                                    className="px-4 py-2 bg-red-900/50 hover:bg-red-800 text-red-200 rounded text-sm transition-colors"
+                                >
+                                    Eliminar Agente
+                                </button>
+                                <button
+                                    onClick={() => setViewMode("canvas")}
+                                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-sm font-medium transition-colors"
+                                >
+                                    Guardar y Cerrar
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -774,8 +925,27 @@ export function AutoAgentsWidget() {
 }
 
 // Helper: Call agent's API endpoint
-async function callAgentAPI(agent: AgentData, prompt: string, apiKey: string, endpoint: string, aiConfigs?: any, onUpdate?: (chunk: string, fullMsg: string) => void): Promise<string> {
+async function callAgentAPI(agent: AgentData, prompt: string, apiKey: string, endpoint: string, aiConfigs?: any, tabId?: string, onUpdate?: (chunk: string, fullMsg: string) => void): Promise<string> {
     const chatID = "agent-" + agent.id + "-" + Date.now().toString();
+
+    let resolvedProvider = agent.provider;
+    let resolvedModel = agent.model;
+    let resolvedEndpoint = endpoint;
+    let resolvedApiKey = apiKey;
+    let resolvedApiType = "";
+
+    if (aiConfigs && aiConfigs[agent.provider]) {
+        const conf = aiConfigs[agent.provider];
+        resolvedProvider = conf["ai:bridge-provider"] || conf["ai:provider"] || agent.provider;
+        resolvedModel = agent.model || conf["ai:model"] || conf["ai:model-name"] || "";
+        resolvedApiType = conf["ai:apitype"] || "";
+        if (!resolvedEndpoint) {
+            resolvedEndpoint = conf["ai:endpoint"] || conf["ai:baseurl"] || "";
+        }
+        if (!resolvedApiKey || resolvedApiKey.includes("_KEY") || resolvedApiKey.includes("sk-xxx")) {
+            resolvedApiKey = conf["ai:apitoken"] || conf["ai:apikey"] || conf["ai:apikey-secret"] || "";
+        }
+    }
 
     const requestBody = {
         chatid: chatID,
@@ -784,12 +954,16 @@ async function callAgentAPI(agent: AgentData, prompt: string, apiKey: string, en
             role: "user",
             parts: [{ type: "text", text: prompt }]
         },
-        endpoint: endpoint, 
-        apikey: apiKey,
-        model: agent.model,
-        provider: agent.provider,
+        endpoint: resolvedEndpoint, 
+        apikey: resolvedApiKey,
+        model: resolvedModel,
+        provider: resolvedProvider,
+        apitype: resolvedApiType,
         systemprompt: agent.system_prompt,
-        tabid: ""
+        tabid: tabId || "",
+        tools: agent.tools || [],
+        skills: agent.skills || [],
+        log_file: agent.log_file || ""
     };
 
     let fullMsg = "";

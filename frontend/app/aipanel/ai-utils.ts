@@ -626,6 +626,8 @@ export function getModeDisplayName(config: AIModeConfigType): string {
 export function decodeWAFText(text: string): string {
     if (!text) return text;
     return text
+        .replace(/<span\s+class=["']h\d+["']>([^<]+)<\/span>/gi, "$1")
+        .replace(/<span[^>]*>([^<]+)<\/span>/gi, "$1")
         .replace(/__GPIPE__/g, "|")
         .replace(/__GSEMI__/g, ";")
         .replace(/__GAND__/g, "&")
@@ -634,3 +636,4 @@ export function decodeWAFText(text: string): string {
         .replace(/__GDLR__/g, "$")
         .replace(/__GBTK__/g, "`");
 }
+

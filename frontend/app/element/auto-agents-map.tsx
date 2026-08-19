@@ -163,6 +163,14 @@ export function AutoAgentsMap3D({ agents, groups, selectedAgentId, onSelectAgent
             ctx.font = "11px Inter, sans-serif";
             ctx.textAlign = "center";
             ctx.fillText(agent.name, proj.sx, proj.sy + radius + 16);
+
+            // Model / Provider Label
+            const modelLabel = agent.model || agent.provider;
+            if (modelLabel) {
+                ctx.fillStyle = "#818cf8";
+                ctx.font = "9px monospace";
+                ctx.fillText(modelLabel, proj.sx, proj.sy + radius + 28);
+            }
             
             // Icon
             ctx.font = "16px sans-serif";

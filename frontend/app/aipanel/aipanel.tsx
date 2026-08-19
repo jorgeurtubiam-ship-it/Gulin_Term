@@ -30,6 +30,8 @@ import { BYOKAnnouncement } from "./byokannouncement";
 import { TelemetryRequiredMessage } from "./telemetryrequired";
 import { GulinAIModel } from "./gulinai-model";
 import { DebugLogWidget } from "./debuglogwidget";
+import { lastQueryWasVoiceAtom } from "./voice/voice-atoms";
+import { VoiceService } from "./voice/voice-service";
 
 const AIBlockMask = memo(() => {
     return (
@@ -311,7 +313,24 @@ const AIPanelComponentInner = memo(() => {
                 }
             });
         },
-        onFinish: (message) => {
+        onFinish: (options: any) => {
+            const wasVoice = globalStore.get(lastQueryWasVoiceAtom);
+            if (wasVoice) {
+                const msg = options?.message || options;
+                let textContent = "";
+                if (typeof msg?.content === "string") {
+                    textContent = msg.content;
+                } else if (Array.isArray(msg?.parts)) {
+                    textContent = msg.parts
+                        .filter((p: any) => p?.type === "text" && p?.text)
+                        .map((p: any) => p.text)
+                        .join(" ");
+                }
+                if (textContent) {
+                    VoiceService.getInstance().speakResponse(textContent);
+                }
+                globalStore.set(lastQueryWasVoiceAtom, false);
+            }
         },
         onError: (error) => {
             model.setError(error.message || "An error occurred");
@@ -612,10 +631,9 @@ const AIPanelComponentInner = memo(() => {
             ref={containerRef}
             data-gulinai-panel="true"
             className={cn(
-                "@container bg-zinc-900/70 flex flex-col relative",
-                model.inBuilder ? "mt-0 h-full" : "mt-1 h-[calc(100%-4px)]",
-                (isDragOver || isReactDndDragOver) && "bg-zinc-800 border-accent",
-                isFocused ? "border-2 border-accent" : "border-2 border-transparent"
+                "@container bg-[#09090b] flex flex-col relative w-full h-full z-10",
+                (isDragOver || isReactDndDragOver) && "bg-zinc-800",
+                isFocused ? "border-2 border-accent" : "border border-zinc-700/60"
             )}
             style={{
                 borderTopRightRadius: model.inBuilder ? 0 : 10,
@@ -643,15 +661,17 @@ const AIPanelComponentInner = memo(() => {
                     <TelemetryRequiredMessage />
                 ) : (
                     <>
-                        <div className="sticky top-0 z-20 bg-zinc-900/95 backdrop-blur-sm px-4 py-2 border-b border-gray-700/30">
+                        <div className="sticky top-0 z-20 bg-zinc-900/95 backdrop-blur-sm px-3 py-1 border-b border-gray-700/30">
                             <AIModeDropdown tokenCount={chatTokens} globalTokens={globalTokens} onResetGlobalTokens={handleResetGlobalTokens} />
                         </div>
                         {messages.length === 0 && initialLoadDone ? (
                             <div
-                                className="flex-1 overflow-y-auto p-2 relative"
+                                className="flex-1 overflow-y-auto relative"
                                 onContextMenu={(e) => handleGulinAIContextMenu(e, true)}
                             >
-                                {model.inBuilder ? <AIBuilderWelcomeMessage /> : <AIWelcomeMessage />}
+                                <div className="min-h-full flex flex-col items-center justify-center p-4">
+                                    {model.inBuilder ? <AIBuilderWelcomeMessage /> : <AIWelcomeMessage />}
+                                </div>
                             </div>
                         ) : (
                             <AIPanelMessages

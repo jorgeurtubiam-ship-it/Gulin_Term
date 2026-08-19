@@ -112,31 +112,28 @@ func (svc *WindowService) PopOutBlockDefToNewWindow(ctx context.Context, blockDe
 	}
 	blockDef.Meta["noheader"] = true
 
-	block, err := wcore.CreateBlock(ctx, ws.ActiveTabId, blockDef, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating block for popout: %w", err)
+	newTab, err := wstore.DBMustGet[*gulinobj.Tab](ctx, ws.ActiveTabId)
+	if err == nil && len(newTab.BlockIds) > 0 {
+		for _, bId := range newTab.BlockIds {
+			wcore.DeleteBlock(ctx, bId, false)
+		}
 	}
 
-	// Insert block into the tab BEFORE opening the window so the frontend
-	// loads with the block already in the layout tree (avoids race condition).
-	err = wcore.QueueLayoutActionForTab(ctx, ws.ActiveTabId, gulinobj.LayoutActionData{
-		ActionType: wcore.LayoutActionDataType_Insert,
-		BlockId:    block.OID,
-		Focused:    true,
-	})
+	err = wcore.ApplyPortableLayout(ctx, ws.ActiveTabId, wcore.PortableLayout{
+		{
+			IndexArr: []int{0},
+			BlockDef: blockDef,
+			Focused:  true,
+		},
+	}, false)
 	if err != nil {
-		return nil, fmt.Errorf("error queuing layout action: %w", err)
+		return nil, fmt.Errorf("error applying portable layout for popout: %w", err)
 	}
 
 	eventbus.SendEventToElectron(eventbus.WSEventType{
 		EventType: eventbus.WSEvent_ElectronNewWindow,
 		Data:      newWindow.OID,
 	})
-
-	windowCreated := eventbus.BusyWaitForWindowId(newWindow.OID, 15*time.Second)
-	if !windowCreated {
-		return nil, fmt.Errorf("new window not created")
-	}
 
 	return gulinobj.ContextGetUpdatesRtn(ctx), nil
 }
@@ -175,12 +172,12 @@ func (svc *WindowService) MoveBlockToNewWindow(ctx context.Context, currentTabId
 		return nil, fmt.Errorf("error getting workspace: %w", err)
 	}
 	
+	var targetBlockId string
 	// The new window has a default terminal block. Delete it so the window only has our block.
 	newTab, err := wstore.DBMustGet[*gulinobj.Tab](ctx, ws.ActiveTabId)
 	if err == nil && len(newTab.BlockIds) > 0 {
-		for _, bId := range newTab.BlockIds {
-			wcore.DeleteBlock(ctx, bId, false)
-		}
+		targetBlockId = newTab.BlockIds[0]
+		wcore.DeleteBlock(ctx, targetBlockId, false)
 	}
 
 	err = wstore.MoveBlockToTab(ctx, actualTabId, ws.ActiveTabId, blockId)
@@ -193,30 +190,28 @@ func (svc *WindowService) MoveBlockToNewWindow(ctx context.Context, currentTabId
 		BlockId:    blockId,
 	})
 
+	actionType := wcore.LayoutActionDataType_Insert
+	if targetBlockId != "" {
+		actionType = wcore.LayoutActionDataType_Replace
+	}
+
 	wcore.QueueLayoutActionForTab(ctx, ws.ActiveTabId, gulinobj.LayoutActionData{
-		ActionType: wcore.LayoutActionDataType_Insert,
-		BlockId:    blockId,
-		Focused:    true,
+		ActionType:    actionType,
+		BlockId:       blockId,
+		TargetBlockId: targetBlockId,
+		Focused:       true,
 	})
 
 	eventbus.SendEventToElectron(eventbus.WSEventType{
 		EventType: eventbus.WSEvent_ElectronNewWindow,
 		Data:      newWindow.OID,
 	})
-	windowCreated := eventbus.BusyWaitForWindowId(newWindow.OID, 15*time.Second)
-	if !windowCreated {
-		return nil, fmt.Errorf("new window not created")
-	}
 	// Note: We do NOT send a Remove layout action to the original tab here.
 	// MoveBlockToTab already removed the block from the original tab's blockids.
 	// Sending a Remove layout action would cause the original TileLayout to call
 	// onNodeDelete, which would permanently delete the block from the database.
 	
-	wcore.QueueLayoutActionForTab(ctx, ws.ActiveTabId, gulinobj.LayoutActionData{
-		ActionType: wcore.LayoutActionDataType_Insert,
-		BlockId:    blockId,
-		Focused:    true,
-	})
+
 	return gulinobj.ContextGetUpdatesRtn(ctx), nil
 }
 

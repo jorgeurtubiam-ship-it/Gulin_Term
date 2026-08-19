@@ -105,7 +105,7 @@ const BlockFrame_Default_Component = (props: BlockFrameProps) => {
     const [magnifiedBlockOpacityAtom] = React.useState(() => getSettingsKeyAtom("window:magnifiedblockopacity"));
     const magnifiedBlockOpacity = jotai.useAtomValue(magnifiedBlockOpacityAtom);
     const connBtnRef = React.useRef<HTMLDivElement>(null);
-    const noHeader = util.useAtomValueSafe(viewModel?.noHeader);
+    const noHeader = util.useAtomValueSafe(viewModel?.noHeader) || (blockData?.meta as any)?.noheader === true;
 
     React.useEffect(() => {
         if (!manageConnection) {

@@ -95,22 +95,33 @@ export const SkillManager = memo(({ model, onClose }: SkillManagerProps) => {
                                 availableSkills.forEach(skill => {
                                     const cleanTitle = skill.title.replace("✨ ", "");
                                     const parts = cleanTitle.split("/"); 
+                                    
+                                    let folderParts: string[] = [];
+                                    let skillName: string = "";
+
+                                    if (parts[parts.length - 1].toLowerCase() === "skill" && parts.length > 1) {
+                                        folderParts = parts.slice(0, parts.length - 2);
+                                        skillName = parts[parts.length - 2];
+                                    } else if (parts.length > 1) {
+                                        folderParts = parts.slice(0, parts.length - 1);
+                                        skillName = parts[parts.length - 1];
+                                    } else {
+                                        folderParts = [];
+                                        skillName = parts[0];
+                                    }
+
                                     let current = root;
-                                    for (let i = 0; i < parts.length - 1; i++) {
-                                        const part = parts[i];
-                                        let child = current.children.find((c: any) => c.name === part && !c.isSkill);
+                                    for (const folder of folderParts) {
+                                        let child = current.children.find((c: any) => c.name === folder && !c.isSkill);
                                         if (!child) {
-                                            child = { name: part, children: [], isSkill: false };
+                                            child = { name: folder, children: [], isSkill: false };
                                             current.children.push(child);
                                         }
                                         current = child;
                                     }
-                                    let finalName = parts[parts.length - 1];
-                                    if (finalName.toLowerCase() === "skill" && parts.length > 1) {
-                                        finalName = parts[parts.length - 2];
-                                    }
+
                                     current.children.push({
-                                        name: finalName,
+                                        name: skillName,
                                         isSkill: true,
                                         skill: skill
                                     });

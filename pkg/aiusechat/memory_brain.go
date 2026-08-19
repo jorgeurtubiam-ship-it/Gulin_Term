@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/gulindev/gulin/pkg/gulinbase"
@@ -38,7 +37,11 @@ func UpdateGulinMemoryFile(filename string, content string) error {
 	
 	// Si viene con path relativo, lo guardamos ahí, sino por defecto a memoria/
 	var absPath string
-	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+	if strings.HasPrefix(filename, "skills/") {
+		skillsDir := gulinbase.GetConfiguredSkillsDir()
+		absPath = filepath.Join(skillsDir, strings.TrimPrefix(filepath.FromSlash(filename), "skills/"))
+		os.MkdirAll(filepath.Dir(absPath), 0700)
+	} else if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
 		absPath = filepath.Join(workspaceDir, filepath.FromSlash(filename))
 		// Ensure parent directory exists
 		os.MkdirAll(filepath.Dir(absPath), 0700)
@@ -63,6 +66,9 @@ func ReadGulinMemoryFile(filename string) (string, error) {
 	var absPath string
 	if filepath.IsAbs(filename) {
 		absPath = filename
+	} else if strings.HasPrefix(filename, "skills/") {
+		skillsDir := gulinbase.GetConfiguredSkillsDir()
+		absPath = filepath.Join(skillsDir, strings.TrimPrefix(filepath.FromSlash(filename), "skills/"))
 	} else if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
 		// Es un path relativo al workspace
 		absPath = filepath.Join(workspaceDir, filepath.FromSlash(filename))
@@ -90,11 +96,10 @@ func ListGulinMemoryFiles() ([]string, error) {
 	dataDir := gulinbase.GetGulinDataDir()
 	workspaceDir := filepath.Dir(dataDir)
 
-	// Carpetas clave a indexar para el RAG universal
+	// Carpetas clave a indexar para el RAG universal (EXCLUYE skills para no contaminar la memoria ambiental)
 	targetDirs := []string{
 		filepath.Join(workspaceDir, "memoria"),
 		filepath.Join(workspaceDir, "learned"),
-		filepath.Join(workspaceDir, "skills"),
 		filepath.Join(workspaceDir, ".agents"),
 	}
 
@@ -119,20 +124,93 @@ func ListGulinMemoryFiles() ([]string, error) {
 	return files, nil
 }
 
+func ListGulinSkillFiles() ([]string, error) {
+	skillsDir := gulinbase.GetConfiguredSkillsDir()
+	var files []string
+
+	_ = filepath.Walk(skillsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && (strings.HasSuffix(strings.ToLower(info.Name()), ".md") || strings.HasSuffix(strings.ToLower(info.Name()), ".skill")) {
+			relPath, err := filepath.Rel(skillsDir, path)
+			if err == nil {
+				files = append(files, "skills/"+filepath.ToSlash(relPath))
+			}
+		}
+		return nil
+	})
+
+	return files, nil
+}
+
+func ReadGulinSkillFile(skillName string) (string, error) {
+	skillsDir := gulinbase.GetConfiguredSkillsDir()
+	rel := strings.TrimPrefix(filepath.ToSlash(skillName), "skills/")
+
+	candidates := []string{
+		filepath.Join(skillsDir, rel),
+		filepath.Join(skillsDir, rel, "SKILL.md"),
+		filepath.Join(skillsDir, rel, "skill.md"),
+		filepath.Join(skillsDir, rel+".md"),
+		filepath.Join(skillsDir, strings.ReplaceAll(rel, "_", "-")),
+		filepath.Join(skillsDir, strings.ReplaceAll(rel, "_", "-"), "SKILL.md"),
+		filepath.Join(skillsDir, strings.ReplaceAll(rel, "_", "-"), "skill.md"),
+		filepath.Join(skillsDir, strings.ReplaceAll(rel, "-", "_")),
+		filepath.Join(skillsDir, strings.ReplaceAll(rel, "-", "_"), "SKILL.md"),
+		filepath.Join(skillsDir, strings.ReplaceAll(rel, "-", "_"), "skill.md"),
+	}
+
+	for _, cand := range candidates {
+		info, err := os.Stat(cand)
+		if err == nil && !info.IsDir() {
+			c, err := os.ReadFile(cand)
+			if err == nil && len(c) > 0 {
+				return string(c), nil
+			}
+		}
+	}
+
+	// Recursive walk in skillsDir matching cleanName
+	clean := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(rel, "-", ""), "_", ""))
+	clean = strings.TrimSuffix(clean, "skill.md")
+	clean = strings.TrimSuffix(clean, ".md")
+	clean = strings.Trim(clean, "/")
+
+	var foundContent string
+	_ = filepath.Walk(skillsDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
+			return nil
+		}
+		pathNorm := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(filepath.ToSlash(path), "-", ""), "_", ""))
+		if clean != "" && strings.Contains(pathNorm, clean) && (strings.HasSuffix(strings.ToLower(info.Name()), ".md") || strings.HasSuffix(strings.ToLower(info.Name()), ".skill")) {
+			if c, readErr := os.ReadFile(path); readErr == nil && len(c) > 0 {
+				foundContent = string(c)
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+
+	if foundContent != "" {
+		return foundContent, nil
+	}
+
+	return "", fmt.Errorf("skill not found: %s", skillName)
+}
+
 func GetGulinSkillContext(skillName string) string {
 	if skillName == "" {
 		return ""
 	}
-	// Sanitize skill name to get filename (e.g. "🛡️ Seguridad" -> "seguridad.md")
-	clean := strings.ToLower(skillName)
-	// Remove emojis and spaces
-	reg, _ := regexp.Compile("[^a-z0-9_]+")
-	clean = strings.ReplaceAll(clean, " ", "_")
-	clean = reg.ReplaceAllString(clean, "")
-	clean = strings.Trim(clean, "_")
 
-	content, err := ReadGulinMemoryFile(clean + ".md")
+	content, err := ReadGulinSkillFile(skillName)
 	if err != nil {
+		// Fallback to ReadGulinMemoryFile
+		content, err = ReadGulinMemoryFile(skillName)
+	}
+
+	if err != nil || content == "" {
 		return ""
 	}
 
@@ -281,6 +359,22 @@ func SearchGulinMemory(query string) ([]string, error) {
 		if !seen[baseFile] {
 			topFiles = append(topFiles, baseFile)
 			seen[baseFile] = true
+		}
+	}
+
+	// Keyword & Filename matching fallback (e.g. o365, aws, dba, ley, etc.)
+	queryWords := strings.Fields(strings.ToLower(query))
+	allFiles, _ := ListGulinMemoryFiles()
+	for _, f := range allFiles {
+		fLower := strings.ToLower(f)
+		for _, w := range queryWords {
+			cleanWord := strings.Trim(w, "@,.?!:;\"'")
+			if len(cleanWord) >= 3 && strings.Contains(fLower, cleanWord) {
+				if !seen[f] {
+					topFiles = append(topFiles, f)
+					seen[f] = true
+				}
+			}
 		}
 	}
 	

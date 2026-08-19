@@ -35,16 +35,20 @@ class WorkspaceLayoutModel {
     private transitionTimeoutRef: NodeJS.Timeout | null = null;
     private focusTimeoutRef: NodeJS.Timeout | null = null;
     panelVisibleAtom: jotai.PrimitiveAtom<boolean>;
+    terminalPanelRef: ImperativePanelHandle | null;
+    terminalPanelVisibleAtom: jotai.PrimitiveAtom<boolean>;
 
     private constructor() {
         this.aiPanelRef = null;
         this.panelGroupRef = null;
         this.panelContainerRef = null;
         this.aiPanelWrapperRef = null;
+        this.terminalPanelRef = null;
         this.inResize = false;
         this.aiPanelVisible = false;
         this.aiPanelWidth = null;
         this.panelVisibleAtom = jotai.atom(this.aiPanelVisible);
+        this.terminalPanelVisibleAtom = jotai.atom(false);
 
         this.handleWindowResize = this.handleWindowResize.bind(this);
         this.handlePanelLayout = this.handlePanelLayout.bind(this);
@@ -116,13 +120,36 @@ class WorkspaceLayoutModel {
         this.updateWrapperWidth();
     }
 
+    registerTerminalRef(ref: ImperativePanelHandle): void {
+        this.terminalPanelRef = ref;
+    }
+
+    toggleTerminalPanel(): void {
+        if (!this.terminalPanelRef || !this.panelGroupRef) return;
+        const isVisible = globalStore.get(this.terminalPanelVisibleAtom);
+        this.enableTransitions(300);
+        if (isVisible) {
+            globalStore.set(this.terminalPanelVisibleAtom, false);
+            this.terminalPanelRef.collapse();
+            this.inResize = true;
+            this.panelGroupRef.setLayout([100, 0]);
+            this.inResize = false;
+        } else {
+            globalStore.set(this.terminalPanelVisibleAtom, true);
+            this.terminalPanelRef.expand();
+            const aiPercentage = Math.min(this.getAIPanelPercentage(window.innerWidth) || 60, 65);
+            this.inResize = true;
+            this.panelGroupRef.setLayout([aiPercentage, 100 - aiPercentage]);
+            this.inResize = false;
+        }
+        this.updateWrapperWidth();
+    }
+
     updateWrapperWidth(): void {
         if (!this.aiPanelWrapperRef) {
             return;
         }
-        const width = this.getAIPanelWidth();
-        const clampedWidth = this.getClampedAIPanelWidth(width, window.innerWidth);
-        this.aiPanelWrapperRef.style.width = `${clampedWidth}px`;
+        this.aiPanelWrapperRef.style.width = "100%";
     }
 
     enableTransitions(duration: number): void {
@@ -152,6 +179,20 @@ class WorkspaceLayoutModel {
         if (!this.panelGroupRef) {
             return;
         }
+        const aiVisible = this.getAIPanelVisible();
+        if (!aiVisible) {
+            this.inResize = true;
+            this.panelGroupRef.setLayout([0, 100]);
+            this.inResize = false;
+            return;
+        }
+        const terminalVisible = globalStore.get(this.terminalPanelVisibleAtom);
+        if (!terminalVisible) {
+            this.inResize = true;
+            this.panelGroupRef.setLayout([100, 0]);
+            this.inResize = false;
+            return;
+        }
         const newWindowWidth = window.innerWidth;
         const aiPanelPercentage = this.getAIPanelPercentage(newWindowWidth);
         const mainContentPercentage = this.getMainContentPercentage(newWindowWidth);
@@ -163,43 +204,69 @@ class WorkspaceLayoutModel {
     }
 
     handlePanelLayout(sizes: number[]): void {
-        // dlog("handlePanelLayout", "inResize:", this.inResize, "sizes:", sizes);
         if (this.inResize) {
             return;
         }
         if (!this.panelGroupRef) {
             return;
         }
-
+        const aiVisible = this.getAIPanelVisible();
+        if (!aiVisible) {
+            if (sizes[0] > 1) {
+                this.inResize = true;
+                this.panelGroupRef.setLayout([0, 100]);
+                this.inResize = false;
+            }
+            return;
+        }
+        const terminalVisible = globalStore.get(this.terminalPanelVisibleAtom);
+        // If terminal is hidden, always keep AI panel at 100%
+        if (!terminalVisible) {
+            if (sizes[0] < 99) {
+                this.inResize = true;
+                this.panelGroupRef.setLayout([100, 0]);
+                this.inResize = false;
+            }
+            this.updateWrapperWidth();
+            return;
+        }
         const currentWindowWidth = window.innerWidth;
         const aiPanelPixelWidth = (sizes[0] / 100) * currentWindowWidth;
         this.handleAIPanelResize(aiPanelPixelWidth, currentWindowWidth);
         const newPercentage = this.getAIPanelPercentage(currentWindowWidth);
-        const mainContentPercentage = 100 - newPercentage;
-        this.inResize = true;
-        const layout = [newPercentage, mainContentPercentage];
-        this.panelGroupRef.setLayout(layout);
-        this.inResize = false;
+        
+        // Only call setLayout if the new percentage differs significantly from the current sizes
+        // to prevent interrupting the user's drag gesture.
+        if (Math.abs(sizes[0] - newPercentage) > 1) {
+            const mainContentPercentage = 100 - newPercentage;
+            this.inResize = true;
+            const layout = [newPercentage, mainContentPercentage];
+            this.panelGroupRef.setLayout(layout);
+            this.inResize = false;
+        }
     }
 
     syncAIPanelRef(): void {
         if (!this.aiPanelRef || !this.panelGroupRef) {
             return;
         }
-
-        const currentWindowWidth = window.innerWidth;
-        const aiPanelPercentage = this.getAIPanelPercentage(currentWindowWidth);
-        const mainContentPercentage = this.getMainContentPercentage(currentWindowWidth);
-
-        if (this.getAIPanelVisible()) {
+        const aiVisible = this.getAIPanelVisible();
+        if (aiVisible) {
             this.aiPanelRef.expand();
         } else {
             this.aiPanelRef.collapse();
         }
-
+        const terminalVisible = globalStore.get(this.terminalPanelVisibleAtom);
         this.inResize = true;
-        const layout = [aiPanelPercentage, mainContentPercentage];
-        this.panelGroupRef.setLayout(layout);
+        if (!aiVisible) {
+            this.panelGroupRef.setLayout([0, 100]);
+        } else if (!terminalVisible) {
+            this.panelGroupRef.setLayout([100, 0]);
+        } else {
+            const currentWindowWidth = window.innerWidth;
+            const aiPanelPercentage = this.getAIPanelPercentage(currentWindowWidth);
+            this.panelGroupRef.setLayout([aiPanelPercentage, 100 - aiPanelPercentage]);
+        }
         this.inResize = false;
     }
 
@@ -238,6 +305,7 @@ class WorkspaceLayoutModel {
         });
         this.enableTransitions(250);
         this.syncAIPanelRef();
+        this.updateWrapperWidth();
 
         if (visible) {
             if (!opts?.nofocus) {

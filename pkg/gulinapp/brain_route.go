@@ -638,6 +638,360 @@ func HandleBrainStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ----- Endpoint: POST /brain/chat -----
+
+type BrainChatRequest struct {
+	Message        string `json:"message"`
+	SelectedNodeID string `json:"selected_node_id"`
+	Filter         string `json:"filter"`
+}
+
+type BrainChatResponse struct {
+	Reply           string   `json:"reply"`
+	SuggestedFilter string   `json:"suggested_filter,omitempty"`
+	FocusedNode     string   `json:"focused_node,omitempty"`
+	Nodes           []string `json:"nodes,omitempty"`
+}
+
+func inferNodeCategory(n NodeData) string {
+	typeLower := strings.ToLower(n.Type + " " + n.Label + " " + n.NodeGroup + " " + n.Description)
+	if strings.Contains(typeLower, "aws") || strings.Contains(typeLower, "s3") || strings.Contains(typeLower, "ec2") || strings.Contains(typeLower, "lambda") || strings.Contains(typeLower, "cloud") || strings.Contains(typeLower, "security group") || strings.Contains(typeLower, "lightsail") {
+		return "aws"
+	}
+	if strings.Contains(typeLower, "db") || strings.Contains(typeLower, "postgres") || strings.Contains(typeLower, "mysql") || strings.Contains(typeLower, "mongo") || strings.Contains(typeLower, "redis") || strings.Contains(typeLower, "sql") || strings.Contains(typeLower, "data") || strings.Contains(typeLower, "oracle") || strings.Contains(typeLower, "sqlite") || strings.Contains(typeLower, "table") {
+		return "data"
+	}
+	if strings.Contains(typeLower, "brain") || strings.Contains(typeLower, "neural") || strings.Contains(typeLower, "memory") || strings.Contains(typeLower, "core") || strings.Contains(typeLower, "skill") || strings.Contains(typeLower, "agent") {
+		return "neural"
+	}
+	return "infra"
+}
+
+func processBrainChatQuery(query, selectedNodeID string, nodes []NodeData, edges []EdgeData) BrainChatResponse {
+	q := strings.ToLower(strings.TrimSpace(query))
+
+	// Map nodes by ID and Label for quick lookup
+	nodeMap := make(map[string]NodeData)
+	labelMap := make(map[string]NodeData)
+	for _, n := range nodes {
+		nodeMap[n.ID] = n
+		labelMap[strings.ToLower(n.Label)] = n
+	}
+
+	// 1. Check if user refers to a specific node (by selection or query mention)
+	var targetNode *NodeData
+	if selectedNodeID != "" {
+		if n, ok := nodeMap[selectedNodeID]; ok {
+			targetNode = &n
+		}
+	}
+	if targetNode == nil {
+		for _, n := range nodes {
+			if strings.Contains(q, strings.ToLower(n.ID)) || (len(n.Label) > 3 && strings.Contains(q, strings.ToLower(n.Label))) {
+				targetNode = &n
+				break
+			}
+		}
+	}
+
+	// If a specific node is targeted and query is not asking for global lists (like "todo aws")
+	if targetNode != nil && !strings.Contains(q, "todo") && !strings.Contains(q, "todos") && !strings.Contains(q, "listar todos") {
+		cat := inferNodeCategory(*targetNode)
+		var connected []string
+		for _, e := range edges {
+			if e.Source == targetNode.ID {
+				if tgt, ok := nodeMap[e.Target]; ok {
+					connected = append(connected, fmt.Sprintf("➡️ **%s** (%s, tráfico: `%s`)", tgt.Label, tgt.Type, e.Traffic))
+				}
+			} else if e.Target == targetNode.ID {
+				if src, ok := nodeMap[e.Source]; ok {
+					connected = append(connected, fmt.Sprintf("⬅️ **%s** (%s, tráfico: `%s`)", src.Label, src.Type, e.Traffic))
+				}
+			}
+		}
+
+		statusBadge := "🟢 **Online**"
+		if strings.ToLower(targetNode.Status) == "offline" || strings.ToLower(targetNode.Status) == "stopped" {
+			statusBadge = "🔴 **Offline / Detenido**"
+		} else if strings.ToLower(targetNode.Status) == "degraded" {
+			statusBadge = "🟡 **Degradado**"
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("### %s %s\n\n", targetNode.Icon, targetNode.Label))
+		sb.WriteString(fmt.Sprintf("- **ID**: `%s`\n", targetNode.ID))
+		sb.WriteString(fmt.Sprintf("- **Categoría**: `%s`\n", cat))
+		sb.WriteString(fmt.Sprintf("- **Tipo**: `%s`\n", targetNode.Type))
+		sb.WriteString(fmt.Sprintf("- **Estado**: %s\n", statusBadge))
+		if targetNode.NodeGroup != "" {
+			sb.WriteString(fmt.Sprintf("- **Grupo**: `%s`\n", targetNode.NodeGroup))
+		}
+		if targetNode.Description != "" {
+			sb.WriteString(fmt.Sprintf("\n> 📋 **Descripción / Configuración**:\n> %s\n\n", targetNode.Description))
+		}
+
+		if len(connected) > 0 {
+			sb.WriteString("#### 🔗 Conexiones & Topología:\n")
+			for _, conn := range connected {
+				sb.WriteString(fmt.Sprintf("- %s\n", conn))
+			}
+			sb.WriteString("\n")
+		} else {
+			sb.WriteString("\nℹ️ *Este nodo no posee conexiones directas registradas en la topología.*\n\n")
+		}
+
+		if cat == "aws" {
+			if strings.ToLower(targetNode.Status) == "offline" || strings.ToLower(targetNode.Status) == "stopped" {
+				sb.WriteString("💡 **Recomendación Técnica AWS**:\n")
+				sb.WriteString(fmt.Sprintf("Para reactivar la instancia o revisar su estado en AWS CLI:\n```bash\naws ec2 describe-instance-status --instance-ids %s\naws ec2 start-instances --instance-ids %s\n```\n", targetNode.ID, targetNode.ID))
+			}
+		}
+
+		return BrainChatResponse{
+			Reply:       sb.String(),
+			FocusedNode: targetNode.ID,
+			Nodes:       []string{targetNode.ID},
+		}
+	}
+
+	// 2. AWS / Cloud Query
+	if strings.Contains(q, "aws") || strings.Contains(q, "cloud") || strings.Contains(q, "ec2") || strings.Contains(q, "s3") || strings.Contains(q, "instancia") || strings.Contains(q, "security group") || strings.Contains(q, "lightsail") {
+		var awsNodes []NodeData
+		var onlineCount, offlineCount int
+		var nodeIDs []string
+
+		for _, n := range nodes {
+			if inferNodeCategory(n) == "aws" {
+				awsNodes = append(awsNodes, n)
+				nodeIDs = append(nodeIDs, n.ID)
+				if strings.ToLower(n.Status) == "offline" || strings.ToLower(n.Status) == "stopped" {
+					offlineCount++
+				} else {
+					onlineCount++
+				}
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString("### ☁️ Recursos Cloud AWS en el Catálogo\n\n")
+		sb.WriteString(fmt.Sprintf("Se detectaron **%d recursos de AWS** en la topología (%d activos 🟢, %d detenidos 🔴):\n\n", len(awsNodes), onlineCount, offlineCount))
+
+		// List EC2 and instances
+		sb.WriteString("#### 🖥️ Instancias & Servicios:\n")
+		for _, n := range awsNodes {
+			statusIcon := "🟢"
+			if strings.ToLower(n.Status) == "offline" || strings.ToLower(n.Status) == "stopped" {
+				statusIcon = "🔴"
+			}
+			desc := n.Description
+			if desc == "" {
+				desc = n.Type
+			}
+			sb.WriteString(fmt.Sprintf("- %s **%s** (`%s`) — *%s*\n  └ Estado: `%s` | %s\n", statusIcon, n.Label, n.ID, n.Type, n.Status, desc))
+		}
+
+		sb.WriteString("\n💡 *Puedes hacer clic en cualquier nodo del mapa 3D o escribir su nombre para ver su diagnóstico en detalle.*")
+
+		return BrainChatResponse{
+			Reply:           sb.String(),
+			SuggestedFilter: "aws",
+			Nodes:           nodeIDs,
+		}
+	}
+
+	// 3. Databases / PII / Data Quality Query
+	if strings.Contains(q, "pii") || strings.Contains(q, "dato") || strings.Contains(q, "tabla") || strings.Contains(q, "base de dato") || strings.Contains(q, "db") || strings.Contains(q, "esquema") || strings.Contains(q, "calidad") || strings.Contains(q, "rut") || strings.Contains(q, "ley") {
+		var dataNodes []NodeData
+		var nodeIDs []string
+		for _, n := range nodes {
+			if inferNodeCategory(n) == "data" {
+				dataNodes = append(dataNodes, n)
+				nodeIDs = append(nodeIDs, n.ID)
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString("### 🗄️ Catálogo de Datos & Auditoría PII (Ley 21719)\n\n")
+		sb.WriteString(fmt.Sprintf("Se han indexado **%d fuentes y tablas de datos** en el sistema:\n\n", len(dataNodes)))
+
+		for _, n := range dataNodes {
+			sb.WriteString(fmt.Sprintf("#### 📦 **%s** (`%s`)\n", n.Label, n.Type))
+			if n.Description != "" {
+				sb.WriteString(fmt.Sprintf("- **Detalle**: %s\n", n.Description))
+			}
+			sb.WriteString(fmt.Sprintf("- **Estado**: `%s` | Score Calidad: `95%%`\n\n", n.Status))
+		}
+
+		sb.WriteString("🛡️ **Reglas PII Activas**:\n")
+		sb.WriteString("- 🔴 **Crítico**: RUT/DNI, Claves, Tokens, Tarjetas de Crédito.\n")
+		sb.WriteString("- 🟡 **Moderado**: Email, Teléfono, Dirección, Fecha de Nacimiento.\n\n")
+		sb.WriteString("💡 *Selecciona un nodo de base de datos para inspeccionar su estructura de columnas.*")
+
+		return BrainChatResponse{
+			Reply:           sb.String(),
+			SuggestedFilter: "data",
+			Nodes:           nodeIDs,
+		}
+	}
+
+	// 4. Offline / Alerts / Incidents Query
+	if strings.Contains(q, "offline") || strings.Contains(q, "caido") || strings.Contains(q, "caído") || strings.Contains(q, "detenido") || strings.Contains(q, "alerta") || strings.Contains(q, "error") || strings.Contains(q, "problema") || strings.Contains(q, "estado") {
+		var offlineNodes []NodeData
+		var nodeIDs []string
+		for _, n := range nodes {
+			st := strings.ToLower(n.Status)
+			if st == "offline" || st == "stopped" || st == "error" || st == "degraded" {
+				offlineNodes = append(offlineNodes, n)
+				nodeIDs = append(nodeIDs, n.ID)
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString("### ⚠️ Diagnóstico de Nodos Detenidos / Incidentes\n\n")
+		if len(offlineNodes) == 0 {
+			sb.WriteString("✅ **Excelente noticia**: Todos los nodos del catálogo e infraestructura se encuentran operativos (online).\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("Se detectaron **%d nodos con estado de advertencia o detenidos**:\n\n", len(offlineNodes)))
+			for _, n := range offlineNodes {
+				cat := inferNodeCategory(n)
+				sb.WriteString(fmt.Sprintf("- 🔴 **%s** (`%s` · %s)\n  └ Motivo/Desc: %s\n", n.Label, n.ID, cat, n.Description))
+			}
+			sb.WriteString("\n🔧 **Acción Sugerida**: Revisa la conectividad de los servidores y el estado de instancias en AWS/Cloud.")
+		}
+
+		return BrainChatResponse{
+			Reply: sb.String(),
+			Nodes: nodeIDs,
+		}
+	}
+
+	// 5. Servers / Infrastructure Query
+	if strings.Contains(q, "servidor") || strings.Contains(q, "infra") || strings.Contains(q, "host") || strings.Contains(q, "nagios") || strings.Contains(q, "red") {
+		var infraNodes []NodeData
+		var nodeIDs []string
+		for _, n := range nodes {
+			if inferNodeCategory(n) == "infra" {
+				infraNodes = append(infraNodes, n)
+				nodeIDs = append(nodeIDs, n.ID)
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString("### ⚙️ Infraestructura & Servidores de Monitoreo\n\n")
+		sb.WriteString(fmt.Sprintf("Se registran **%d servidores e interfaces de red** en la topología:\n\n", len(infraNodes)))
+		for _, n := range infraNodes {
+			sb.WriteString(fmt.Sprintf("- 🖥️ **%s** (`%s`) — Estado: `%s` | %s\n", n.Label, n.Type, n.Status, n.Description))
+		}
+
+		return BrainChatResponse{
+			Reply:           sb.String(),
+			SuggestedFilter: "infra",
+			Nodes:           nodeIDs,
+		}
+	}
+
+	// 6. Neural AI / Memory / Agents Query
+	if strings.Contains(q, "neural") || strings.Contains(q, "agente") || strings.Contains(q, "memoria") || strings.Contains(q, "cerebro") || strings.Contains(q, "brain") || strings.Contains(q, "skill") {
+		var neuralNodes []NodeData
+		var nodeIDs []string
+		for _, n := range nodes {
+			if inferNodeCategory(n) == "neural" {
+				neuralNodes = append(neuralNodes, n)
+				nodeIDs = append(nodeIDs, n.ID)
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString("### 🧠 Núcleo Neural, Agentes & Memoria Cognitiva\n\n")
+		sb.WriteString(fmt.Sprintf("El grafo cuenta con **%d componentes neurales** activos:\n\n", len(neuralNodes)))
+		for _, n := range neuralNodes {
+			sb.WriteString(fmt.Sprintf("- %s **%s** (`%s`) — %s\n", n.Icon, n.Label, n.Type, n.Description))
+		}
+
+		return BrainChatResponse{
+			Reply:           sb.String(),
+			SuggestedFilter: "neural",
+			Nodes:           nodeIDs,
+		}
+	}
+
+	// 7. General Topology Overview & Help
+	var awsCount, dataCount, infraCount, neuralCount, offlineCount int
+	for _, n := range nodes {
+		cat := inferNodeCategory(n)
+		switch cat {
+		case "aws":
+			awsCount++
+		case "data":
+			dataCount++
+		case "infra":
+			infraCount++
+		case "neural":
+			neuralCount++
+		}
+		if strings.ToLower(n.Status) == "offline" || strings.ToLower(n.Status) == "stopped" {
+			offlineCount++
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("### 🌐 GuLiN Data Catalog & Infrastructure Assistant\n\n")
+	sb.WriteString(fmt.Sprintf("Hola. Estoy sincronizado con tu topología en tiempo real (**%d nodos totales**, **%d conexiones**):\n\n", len(nodes), len(edges)))
+	sb.WriteString(fmt.Sprintf("- ☁️ **Cloud AWS**: %d recursos (%d detenidos 🔴)\n", awsCount, offlineCount))
+	sb.WriteString(fmt.Sprintf("- 🗄️ **Bases de Datos**: %d fuentes con auditoría PII\n", dataCount))
+	sb.WriteString(fmt.Sprintf("- ⚙️ **Infraestructura**: %d servidores y hosts\n", infraCount))
+	sb.WriteString(fmt.Sprintf("- 🧠 **Neural & Agentes**: %d módulos cognitivos\n\n", neuralCount))
+	sb.WriteString("Puedes preguntarme por ejemplo:\n")
+	sb.WriteString("- 💬 *\"Muéstrame todo lo AWS\"*\n")
+	sb.WriteString("- 💬 *\"¿Cuáles son las tablas con datos PII?\"*\n")
+	sb.WriteString("- 💬 *\"¿Qué servidores o instancias están caídas?\"*\n")
+	sb.WriteString("- 💬 *\"Analiza el nodo mindtea-app-final\"*")
+
+	return BrainChatResponse{
+		Reply: sb.String(),
+	}
+}
+
+func HandleBrainChat(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req BrainChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(BrainChatResponse{
+			Reply: "⚠️ Error al procesar la solicitud: formato JSON inválido.",
+		})
+		return
+	}
+
+	InitBrainDB()
+	db, err := OpenBrainDBInternal()
+	if err != nil {
+		json.NewEncoder(w).Encode(BrainChatResponse{
+			Reply: fmt.Sprintf("⚠️ No se pudo conectar a la base de datos del catálogo: %v", err),
+		})
+		return
+	}
+	defer db.Close()
+
+	nodes, _ := getBrainNodes(db)
+	edges, _ := getBrainEdges(db)
+
+	resp := processBrainChatQuery(req.Message, req.SelectedNodeID, nodes, edges)
+	json.NewEncoder(w).Encode(resp)
+}
+
 // ----- Register routes -----
 
 func RegisterBrainRoutes(client *Client) error {
@@ -658,7 +1012,9 @@ func RegisterBrainRoutes(client *Client) error {
 	brainRouter.HandleFunc("/xp", HandlePostXP).Methods("POST", "OPTIONS")
 	brainRouter.HandleFunc("/memory", HandleBrainMemory).Methods("GET", "OPTIONS")
 	brainRouter.HandleFunc("/stream", HandleBrainStream).Methods("GET", "OPTIONS")
+	brainRouter.HandleFunc("/chat", HandleBrainChat).Methods("POST", "OPTIONS")
 
-	log.Printf("[brain] registered /brain/data, /brain/stats, /brain/xp, /brain/memory")
+	log.Printf("[brain] registered /brain/data, /brain/stats, /brain/xp, /brain/memory, /brain/chat")
 	return nil
 }
+

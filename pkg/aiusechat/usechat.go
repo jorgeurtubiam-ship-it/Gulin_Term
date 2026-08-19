@@ -607,28 +607,6 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				currentExpertID = modelParts[1]
 			}
 			processAllToolCalls(ctx, backend, stopReason, chatOpts, sseHandler, metrics, currentExpertID)
-			
-			// Si el orquestador delegó a un experto, actualizamos el modelo para el siguiente paso del bucle
-			for _, toolCall := range stopReason.ToolCalls {
-				if toolCall.Name == "call_expert" {
-					if inputMap, ok := toolCall.Input.(map[string]interface{}); ok {
-						if expertID, ok := inputMap["expert_id"].(string); ok {
-							baseModel := strings.Split(chatOpts.Config.Model, "@")[0]
-							newModel := baseModel + "@" + expertID
-							
-							// PRESERVAR SEGURIDAD: Si el modelo actual tiene @plan, lo propagamos al experto
-							if strings.Contains(chatOpts.Config.Model, "@plan") {
-								if !strings.Contains(newModel, "@plan") {
-									newModel += "@plan"
-								}
-							}
-							
-							chatOpts.Config.Model = newModel
-							log.Printf("RunAIChat: Orchestrator delegated to %s. Switching mode to %s\n", expertID, chatOpts.Config.Model)
-						}
-					}
-				}
-			}
 
 			// SYNC FIX: Ensure the chat store has a moment to flush and that we are continuing from the right state
 			log.Printf("RunAIChat: tool calls processed, continuing to next turn.\n")
@@ -885,24 +863,23 @@ func GulinAIBrainListHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, err := ListGulinMemoryFiles()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list brain files: %v", err), http.StatusInternalServerError)
-		return
-	}
+	memoryFiles, _ := ListGulinMemoryFiles()
+	skillFiles, _ := ListGulinSkillFiles()
+	files := append(memoryFiles, skillFiles...)
 
 	dataDir := gulinbase.GetGulinDataDir()
 	workspaceDir := filepath.Dir(dataDir)
 
 	summaries := make([]BrainSummary, 0)
 	for _, file := range files {
-		parts := strings.Split(filepath.ToSlash(file), "/")
-		if parts[0] == "skills" && len(parts) > 2 && strings.ToLower(parts[len(parts)-1]) != "skill.md" {
-			// Skip supporting files inside skill directories
-			continue
+		var path string
+		if strings.HasPrefix(file, "skills/") {
+			skillsDir := gulinbase.GetConfiguredSkillsDir()
+			path = filepath.Join(skillsDir, strings.TrimPrefix(filepath.FromSlash(file), "skills/"))
+		} else {
+			path = filepath.Join(workspaceDir, filepath.FromSlash(file))
 		}
 
-		path := filepath.Join(workspaceDir, filepath.FromSlash(file))
 		info, err := os.Stat(path)
 		if err != nil {
 			continue
@@ -916,8 +893,7 @@ func GulinAIBrainListHandler(w http.ResponseWriter, r *http.Request) {
 			snippet = snippet[:200]
 		}
 		title := strings.TrimSuffix(file, ".md")
-		title = strings.TrimPrefix(title, "skills/") // We already filtered to skills/
-		// We pass the raw title so the frontend can build a tree.
+		title = strings.TrimPrefix(title, "skills/")
 
 		summaries = append(summaries, BrainSummary{
 			Filename:   file,
@@ -977,7 +953,10 @@ func GulinAIBrainDeleteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var absPath string
-	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+	if strings.HasPrefix(filename, "skills/") {
+		skillsDir := gulinbase.GetConfiguredSkillsDir()
+		absPath = filepath.Join(skillsDir, strings.TrimPrefix(filepath.FromSlash(filename), "skills/"))
+	} else if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
 		dataDir := gulinbase.GetGulinDataDir()
 		workspaceDir := filepath.Dir(dataDir)
 		absPath = filepath.Join(workspaceDir, filepath.FromSlash(filename))
@@ -1867,7 +1846,8 @@ func runExpertSubChat(ctx context.Context, backend UseChatBackend, chatOpts ucty
 	var cont *uctypes.GulinContinueResponse
 
 	for {
-		stopReason, nativeMsgs, rateLimitInfo, err := backend.RunChatStep(ctx, sseHandler, expertOpts, cont)
+		subSSEHandler := sse.MakeSilentSSEHandlerCh(ctx)
+		stopReason, nativeMsgs, rateLimitInfo, err := backend.RunChatStep(ctx, subSSEHandler, expertOpts, cont)
 		updateRateLimit(rateLimitInfo)
 		metrics.RequestCount++
 		
@@ -1949,8 +1929,12 @@ type AgentChatRequest struct {
 	APIKey       string            `json:"apikey"`
 	Model        string            `json:"model"`
 	Provider     string            `json:"provider"`
+	APIType      string            `json:"apitype,omitempty"`
 	SystemPrompt string            `json:"systemprompt"`
 	TabId        string            `json:"tabid,omitempty"`
+	Tools        []string          `json:"tools,omitempty"`
+	Skills       []string          `json:"skills,omitempty"`
+	LogFile      string            `json:"log_file,omitempty"`
 }
 
 type AgentLogRequest struct {
@@ -1971,31 +1955,28 @@ func GulinAIAgentLogHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.AgentName == "" {
-		req.AgentName = req.AgentID
-	}
-	if req.AgentName == "" {
-		req.AgentName = "unknown"
-	}
-
-	logsDir := gulinbase.GetGulinLogsDir()
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create logs dir: %v", err), http.StatusInternalServerError)
+	if req.AgentID == "" || req.Log == "" {
+		http.Error(w, "agentid and log are required", http.StatusBadRequest)
 		return
 	}
 
-	cleanName := strings.ReplaceAll(req.AgentName, " ", "_")
-	logPath := filepath.Join(logsDir, fmt.Sprintf("agent_%s.log", cleanName))
-	
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logEntry := fmt.Sprintf("[%s] [%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), req.AgentName, req.Log)
+	logDir := filepath.Join(gulinbase.GetWorkspacePath(""), "log")
+	logFile := filepath.Join(logDir, fmt.Sprintf("%s.log", req.AgentID))
+
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create log directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to open log file: %v", err), http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()
 
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	if _, err := f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, req.Log)); err != nil {
+	if _, err := f.WriteString(logEntry); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to write to log file: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -2020,48 +2001,24 @@ func GulinAIAgentChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If req.Provider is a config key, resolve it from the global config
-	/*
-	globalConf, err := wconfig.GetGlobalGulinAIConfig()
-	if err == nil && globalConf != nil && globalConf.Presets != nil {
-		if preset, ok := globalConf.Presets[req.Provider]; ok {
-			if req.APIKey == "" {
-				if preset.APIToken != "" {
-					req.APIKey = preset.APIToken
-				} else if preset.APITokenSecretName != "" {
-					secret, err := wconfig.GetGlobalSecret(preset.APITokenSecretName)
-					if err == nil {
-						req.APIKey = secret.SecretValue
-					}
-				}
-			}
-			if req.Endpoint == "" && preset.BaseUrl != "" {
-				req.Endpoint = preset.BaseUrl
-			}
-			if req.Model == "" && preset.Model != "" {
-				req.Model = preset.Model
-			}
-			if preset.Provider != "" && preset.Provider != "gulin" {
-				req.Provider = preset.Provider
-			}
-			if preset.BridgeProvider != "" {
-				req.Provider = preset.BridgeProvider
-			}
+	apiType := req.APIType
+	provLower := strings.ToLower(req.Provider)
+	if apiType == "" || apiType == "custom" {
+		if strings.Contains(provLower, "gemini") || strings.Contains(provLower, "google") {
+			apiType = uctypes.APIType_GoogleGemini
+		} else if strings.Contains(provLower, "anthropic") || strings.Contains(provLower, "claude") {
+			apiType = uctypes.APIType_AnthropicMessages
+		} else if strings.Contains(provLower, "bedrock") {
+			apiType = uctypes.APIType_AWSBedrock
+		} else if strings.Contains(provLower, "plai") {
+			apiType = uctypes.APIType_PlaiAssistant
+		} else {
+			apiType = uctypes.APIType_OpenAIChat
 		}
 	}
-	*/
 
-	apiType := req.Provider
-	switch req.Provider {
-	case "google", "gemini":
-		apiType = uctypes.APIType_GoogleGemini
-		if req.Endpoint == "https://generativelanguage.googleapis.com/v1beta/models/" {
-			req.Endpoint = ""
-		}
-	case "anthropic":
-		apiType = uctypes.APIType_AnthropicMessages
-	case "openai", "deepseek", "ollama", "groq", "nvidia":
-		apiType = uctypes.APIType_OpenAIChat
+	if apiType == uctypes.APIType_GoogleGemini && req.Endpoint == "https://generativelanguage.googleapis.com/v1beta/models/" {
+		req.Endpoint = ""
 	}
 
 	// Create custom AI Opts
@@ -2082,7 +2039,27 @@ func GulinAIAgentChatHandler(w http.ResponseWriter, r *http.Request) {
 		TabId:                req.TabId,
 	}
 
-	chatOpts.SystemPrompt = []string{req.SystemPrompt}
+	// Inyectar Skills especializadas del agente
+	for _, skillName := range req.Skills {
+		skillCtx := GetGulinSkillContext(skillName)
+		if skillCtx != "" {
+			chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, skillCtx)
+		}
+	}
+
+	// Inyectar el Brain Context (memoria e infraestructura real)
+	userText := ""
+	for _, p := range req.Msg.Parts {
+		if p.Type == "text" {
+			userText += p.Text + " "
+		}
+	}
+	brainCtx := GetGulinBrainContext(userText)
+	if brainCtx != "" {
+		chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, 
+			fmt.Sprintf("INFORMACIÓN REAL DE LA INFRAESTRUCTURA (GULIN BRAIN):\n%s\n\nREGLA ESTRICTA ANTI-ALUCINACIÓN: Basa tu análisis exclusivamente en los datos reales mostrados arriba. Si un recurso (ej: bases RDS, buckets S3) NO existe en los datos, debes declarar explícitamente que no existe. NUNCA inventes recursos, métricas ni configuraciones ficticias.", brainCtx),
+		)
+	}
 
 	if req.TabId != "" {
 		tabState, tabTools, err := GenerateTabStateAndTools(r.Context(), req.TabId, true, &chatOpts)
@@ -2093,17 +2070,68 @@ func GulinAIAgentChatHandler(w http.ResponseWriter, r *http.Request) {
 			chatOpts.Tools = append(chatOpts.Tools, tabTools...)
 		}
 	} else {
-		// Default tools if no TabId is provided
+		// Full tools suite if no TabId is provided
 		chatOpts.Tools = append(chatOpts.Tools,
 			GetReadTextFileToolDefinition(),
 			GetReadDirToolDefinition(),
 			GetWriteTextFileToolDefinition(),
 			GetEditTextFileToolDefinition(),
+			GetDeleteTextFileToolDefinition(),
+			GetGulinBrainUpdateToolDefinition(),
+			GetGulinBrainListToolDefinition(),
+			GetGulinBrainSearchToolDefinition(),
+			GetWorkspaceSearchToolDefinition(),
+			GetDBListConnectionsToolDefinition(),
+			GetDBTestConnectionToolDefinition(),
+			GetDBQueryToolDefinition(req.TabId),
+			GetAPICallToolDefinition(),
+			GetAPIListToolDefinition(),
+			GetAPIDeleteToolDefinition(),
+			GetWebSearchToolDefinition(req.TabId),
+			GetListAvailableToolsToolDefinition(),
 		)
+	}
+
+	// Filtrar herramientas específicas del agente si se parametrizaron
+	if len(req.Tools) > 0 {
+		toolMap := make(map[string]bool)
+		for _, t := range req.Tools {
+			toolMap[t] = true
+		}
+		var filteredTools []uctypes.ToolDefinition
+		for _, t := range chatOpts.Tools {
+			if toolMap[t.Name] {
+				filteredTools = append(filteredTools, t)
+			}
+		}
+		chatOpts.Tools = filteredTools
 	}
 
 	sseHandler := sse.MakeSSEHandlerCh(w, r.Context())
 	defer sseHandler.Close()
+
+	// Audit log to workspace log folder
+	agentID := req.ChatID
+	if strings.HasPrefix(agentID, "agent-") {
+		parts := strings.Split(agentID, "-")
+		if len(parts) >= 2 {
+			agentID = parts[1]
+		}
+	}
+	logFile := req.LogFile
+	if logFile == "" {
+		logDir := filepath.Join(gulinbase.GetWorkspacePath(""), "log")
+		_ = os.MkdirAll(logDir, 0755)
+		logFile = filepath.Join(logDir, fmt.Sprintf("%s.log", agentID))
+	} else {
+		_ = os.MkdirAll(filepath.Dir(logFile), 0755)
+	}
+
+	logEntry := fmt.Sprintf("[%s] Interacción: %s\n", time.Now().Format("2006-01-02 15:04:05"), userText)
+	if f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		_, _ = f.WriteString(logEntry)
+		f.Close()
+	}
 
 	if err := GulinAIPostMessageWrap(r.Context(), sseHandler, &req.Msg, chatOpts); err != nil {
 		log.Printf("GulinAIPostMessageWrap failed: %v", err)

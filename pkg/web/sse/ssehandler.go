@@ -6,6 +6,7 @@ package sse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -96,6 +97,34 @@ type SSEHandlerCh struct {
 	handlersRun     bool
 }
 
+type silentResponseWriter struct {
+	header http.Header
+}
+
+func (s *silentResponseWriter) Header() http.Header {
+	if s.header == nil {
+		s.header = make(http.Header)
+	}
+	return s.header
+}
+
+func (s *silentResponseWriter) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+
+func (s *silentResponseWriter) WriteHeader(statusCode int) {}
+
+// MakeSilentSSEHandlerCh creates an SSE handler that consumes events in the background without writing to a client HTTP stream
+func MakeSilentSSEHandlerCh(ctx context.Context) *SSEHandlerCh {
+	w := &silentResponseWriter{header: make(http.Header)}
+	return &SSEHandlerCh{
+		w:       w,
+		rc:      http.NewResponseController(w),
+		ctx:     ctx,
+		writeCh: make(chan SSEMessage, 100),
+	}
+}
+
 // MakeSSEHandlerCh creates a new channel-based SSE handler
 func MakeSSEHandlerCh(w http.ResponseWriter, ctx context.Context) *SSEHandlerCh {
 	return &SSEHandlerCh{
@@ -126,7 +155,7 @@ func (h *SSEHandlerCh) SetupSSE() error {
 	h.initialized = true
 
 	// Reset write deadline for streaming
-	if err := h.rc.SetWriteDeadline(time.Time{}); err != nil {
+	if err := h.rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return fmt.Errorf("failed to reset write deadline: %v", err)
 	}
 

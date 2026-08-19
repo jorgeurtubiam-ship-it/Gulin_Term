@@ -393,6 +393,19 @@ async function appMain() {
     console.log("gulinsrv ready signal received", ready, Date.now() - startTs, "ms");
     await electronApp.whenReady();
     configureAuthKeyRequestInjection(electron.session.defaultSession);
+    electron.session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+        if (permission === "media") {
+            callback(true);
+            return;
+        }
+        callback(true);
+    });
+    electron.session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+        if (permission === "media") {
+            return true;
+        }
+        return true;
+    });
     initIpcHandlers();
 
     await sleep(10); // wait a bit for gulinsrv to be ready

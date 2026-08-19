@@ -196,6 +196,11 @@ export class GulinAIModel {
             }
             GulinAIModel.instance = new GulinAIModel(orefContext, isBuilderWindow());
             (window as any).GulinAIModel = GulinAIModel.instance;
+        } else if (!isBuilderWindow()) {
+            const currentTabId = globalStore.get(atoms.staticTabId);
+            if (currentTabId && GulinAIModel.instance.orefContext.id !== currentTabId) {
+                GulinAIModel.instance.orefContext = WOS.makeORef("tab", currentTabId);
+            }
         }
         return GulinAIModel.instance;
     }
@@ -819,6 +824,12 @@ export class GulinAIModel {
 
         // Refrescar la lista de chats en la sidebar tras enviar un mensaje
         this.loadChatSummaries();
+    }
+
+    async submitVoiceMessage(text: string) {
+        if (!text || !text.trim()) return;
+        globalStore.set(this.inputAtom, text.trim());
+        await this.handleSubmit();
     }
 
     setTokenMode(mode: "mini" | "balanced" | "max") {
