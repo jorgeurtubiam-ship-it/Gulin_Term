@@ -48,7 +48,7 @@ class WorkspaceLayoutModel {
         this.aiPanelVisible = false;
         this.aiPanelWidth = null;
         this.panelVisibleAtom = jotai.atom(this.aiPanelVisible);
-        this.terminalPanelVisibleAtom = jotai.atom(false);
+        this.terminalPanelVisibleAtom = jotai.atom(true);
 
         this.handleWindowResize = this.handleWindowResize.bind(this);
         this.handlePanelLayout = this.handlePanelLayout.bind(this);

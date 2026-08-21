@@ -54,3 +54,8 @@ scratch/
 main-server
 server
 wsh
+build/gulin-server
+*.db
+git_diff.txt
+*.docx
+test_sqlite.go

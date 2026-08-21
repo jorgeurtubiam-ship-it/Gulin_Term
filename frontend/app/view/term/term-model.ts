@@ -692,17 +692,14 @@ export class TermViewModel implements ViewModel {
                 return false;
             }
         }
-        if (keyutil.checkKeyPressed(gulinEvent, "Tab") || keyutil.checkKeyPressed(gulinEvent, "Enter")) {
+        if (keyutil.checkKeyPressed(gulinEvent, "Tab")) {
             const buffer = this.termRef.current?.terminal?.buffer?.active;
             if (buffer) {
                 const currentLineIdx = buffer.cursorY + buffer.baseY;
                 const currentLine = buffer.getLine(currentLineIdx)?.translateToString(true)?.trim() || "";
-                const hashIndex = currentLine.lastIndexOf("#");
+                const hashIndex = currentLine.lastIndexOf("##");
                 if (hashIndex !== -1) {
-                    const hashPrefix = currentLine.substring(0, hashIndex).trim();
-                    // Basic heuristic: if there's a #, and it's either the first char or preceded by spaces or prompt chars
-
-                    const promptText = currentLine.substring(hashIndex + 1).trim();
+                    const promptText = currentLine.substring(hashIndex + 2).trim();
                     if (promptText.length > 0) {
                         event.preventDefault();
                         event.stopPropagation();

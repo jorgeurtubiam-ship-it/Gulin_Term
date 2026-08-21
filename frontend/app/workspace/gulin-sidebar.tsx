@@ -440,7 +440,7 @@ export const GulinSidebar = () => {
                         </div>
                         <div className="flex flex-col truncate">
                             <span className="text-xs font-semibold text-zinc-200 truncate">Empresa GuLiN</span>
-                            <span className="text-[10px] text-zinc-500 truncate">enterprise@gulin.internal</span>
+                            <span className="text-[10px] text-zinc-500 truncate">contacto@ecogulin.cl</span>
                         </div>
                     </div>
                     <button className="text-zinc-400 hover:text-red-400 p-1 transition-colors" title="Cerrar Sesión">

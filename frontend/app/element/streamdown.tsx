@@ -38,7 +38,7 @@ function CodePlain({ className = "", isCodeBlock, text }: { className?: string; 
     }
 
     return (
-        <code className={cn("text-teal-300 font-mono text-[12px] rounded bg-zinc-800/90 px-1.5 py-0.5 border border-zinc-700/50", className)}>
+        <code className={cn("text-green-400 font-mono text-[12px] rounded bg-zinc-800/90 px-1.5 py-0.5 border border-zinc-700/50", className)}>
             {text}
         </code>
     );
@@ -255,8 +255,8 @@ const CodeBlock = ({ children, onClickExecute, codeBlockMaxWidthAtom }: CodeBloc
         >
             <div className="flex items-center justify-between px-3.5 py-1.5 bg-zinc-900/80 border-b border-zinc-800/60 select-none">
                 <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-teal-500/80" />
-                    <span className="text-[10px] font-mono font-bold tracking-wider text-teal-400/90 uppercase">
+                    <span className="w-2 h-2 rounded-full bg-green-500/80" />
+                    <span className="text-[10px] font-mono font-bold tracking-wider text-green-400/90 uppercase">
                         {language !== "text" ? language : "CODE"}
                     </span>
                 </div>
@@ -269,11 +269,11 @@ const CodeBlock = ({ children, onClickExecute, codeBlockMaxWidthAtom }: CodeBloc
                                 "flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95",
                                 executingState === "sent"
                                     ? "bg-emerald-600/30 text-emerald-300 border border-emerald-500/50"
-                                    : "bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 hover:border-teal-400"
+                                    : "bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/40 hover:border-green-400"
                             )}
                             title="Ejecutar directamente en la terminal activa"
                         >
-                            <i className={cn("text-[10px]", executingState === "sent" ? "fa-solid fa-check text-emerald-400" : "fa-solid fa-play text-teal-400")} />
+                            <i className={cn("text-[10px]", executingState === "sent" ? "fa-solid fa-check text-emerald-400" : "fa-solid fa-play text-green-400")} />
                             <span>{executingState === "sent" ? "Enviado ✓" : "Run in Terminal"}</span>
                         </button>
                     )}
@@ -300,11 +300,11 @@ function Collapsible({ title, children, defaultOpen = false }: { title: string; 
     return (
         <div className="my-2.5 rounded-xl border border-zinc-800 bg-zinc-950/60 overflow-hidden">
             <button
-                className="w-full flex items-center justify-between px-3.5 py-2 text-left text-xs font-mono font-semibold text-zinc-300 hover:text-teal-300 hover:bg-zinc-900/50 transition-colors"
+                className="w-full flex items-center justify-between px-3.5 py-2 text-left text-xs font-mono font-semibold text-zinc-300 hover:text-green-300 hover:bg-zinc-900/50 transition-colors"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-teal-400 transition-transform duration-200">
+                    <span className="text-[10px] text-green-400 transition-transform duration-200">
                         {isOpen ? "▼" : "▶"}
                     </span>
                     <span>{title}</span>
@@ -382,7 +382,7 @@ export const GulinStreamdown = ({
                 <h1 {...props} className="text-xl font-bold font-mono text-zinc-100 mt-5 mb-2.5 pb-1 border-b border-zinc-800 flex items-center gap-2" />
             ),
             h2: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
-                <h2 {...props} className="text-lg font-bold font-mono text-teal-300 mt-4 mb-2 flex items-center gap-2" />
+                <h2 {...props} className="text-lg font-bold font-mono text-green-400 mt-4 mb-2 flex items-center gap-2" />
             ),
             h3: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
                 <h3 {...props} className="text-sm font-semibold font-mono text-zinc-200 mt-3 mb-1.5" />
@@ -437,9 +437,9 @@ export const GulinStreamdown = ({
             // Modern Callout / Alert Cards for Blockquotes
             blockquote: (props: React.HTMLAttributes<HTMLQuoteElement>) => {
                 const text = extractText(props.children);
-                let borderColor = "border-teal-500/50";
-                let bgColor = "bg-teal-950/20";
-                let textColor = "text-teal-200";
+                let borderColor = "border-green-500/50";
+                let bgColor = "bg-green-950/20";
+                let textColor = "text-green-200";
                 let icon = "fa-circle-info";
 
                 if (text.includes("[!WARNING]") || text.includes("⚠️") || text.includes("Alerta") || text.includes("Hipótesis")) {
@@ -480,7 +480,7 @@ export const GulinStreamdown = ({
             },
             summary: () => null,
             a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-                <a {...props} className="text-teal-400 hover:text-teal-300 font-mono underline decoration-teal-500/40 hover:decoration-teal-300 transition-colors" />
+                <a {...props} className="text-green-400 hover:text-green-300 font-mono underline decoration-green-500/40 hover:decoration-green-300 transition-colors" />
             ),
             strong: (props: React.HTMLAttributes<HTMLElement>) => (
                 <strong {...props} className="font-bold text-zinc-100" />

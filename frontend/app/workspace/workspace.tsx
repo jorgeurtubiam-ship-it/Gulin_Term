@@ -93,7 +93,7 @@ const WorkspaceElem = memo(() => {
                                 ref={aiPanelRef}
                                 collapsible
                                 minSize={20}
-                                defaultSize={100}
+                                defaultSize={initialAiPanelPercentage}
                                 order={1}
                                 className="overflow-hidden"
                             >
@@ -105,20 +105,18 @@ const WorkspaceElem = memo(() => {
                             <Panel
                                 ref={terminalPanelRef}
                                 collapsible
-                                defaultSize={0}
+                                defaultSize={100 - initialAiPanelPercentage}
                                 minSize={20}
                                 order={2}
                                 className="overflow-hidden"
                             >
-                                {(!aiVisible || terminalVisible) && (
-                                    tabId === "" ? (
-                                        <CenteredDiv>No Active Tab</CenteredDiv>
-                                    ) : (
-                                        <div className="flex flex-row h-full">
-                                            <TabContent key={tabId} tabId={tabId} />
-                                            <Widgets />
-                                        </div>
-                                    )
+                                {tabId === "" ? (
+                                    <CenteredDiv>No Active Tab</CenteredDiv>
+                                ) : (
+                                    <div className="flex flex-row h-full">
+                                        <TabContent key={tabId} tabId={tabId} />
+                                        <Widgets />
+                                    </div>
                                 )}
                             </Panel>
                         </PanelGroup>
