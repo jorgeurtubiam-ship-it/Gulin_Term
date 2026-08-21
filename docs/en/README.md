@@ -1,7 +1,7 @@
 <div align="center">
 
 # ⚡ GuLiN IA & Terminal
-### *The Autonomous AI Terminal & Enterprise Oracle DBA Operating System*
+### *The Universal Autonomous AI Operating System & Terminal for Modern Engineering*
 
 [![GitHub Stars](https://img.shields.io/github/stars/jorgeurtubiam-ship-it/Gulin_ia?style=for-the-badge&logo=github&color=38bdf8)](https://github.com/jorgeurtubiam-ship-it/Gulin_ia/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/jorgeurtubiam-ship-it/Gulin_ia?style=for-the-badge&logo=github&color=818cf8)](https://github.com/jorgeurtubiam-ship-it/Gulin_ia/network/members)
@@ -25,70 +25,87 @@
 **[English](./README.md)** · **[Español](../../README.md)** · **[한국어](../../README.ko.md)**
 
 <p align="center">
-  <b>GuLiN</b> transforms your terminal into an <b>Autonomous Agentic Operations Center</b>.<br/>
-  Install, diagnose, and orchestrate complex enterprise infrastructure like <b>Oracle Database & Data Guard Standby</b> using <b>pure Natural Language</b>.
+  <b>GuLiN</b> is the definitive <b>Cognitive Terminal Operating System</b> for Developers, DevOps, Data Engineers, and Cloud Architects.<br/>
+  Orchestrate servers, heterogeneous databases, containers, cloud infrastructure, and executive reports using <b>pure Natural Language</b>.
 </p>
 
 </div>
 
 ---
 
-## 🌟 What is GuLiN?
+## 🌐 What is GuLiN Terminal?
 
-**GuLiN Terminal** is the cognitive operating system for developers, DevOps engineers, and DBAs. It embeds frontier AI models (**Max 3, Claude 3.5 Sonnet, Gemini 2.0, DeepSeek R1/V3, GPT-4o, and local Ollama**) directly with your native shell, database engines, and executive reporting tools.
+**GuLiN** is a comprehensive **Autonomous Agentic Platform** that merges terminal performance with frontier artificial intelligence:
 
 ```
-+---------------------------------------------------------------------------------------+
-|  👤 USER (Natural Language Prompt):                                                   |
-|  "Install Oracle DB 23ai, configure Data Guard Standby replica, and give me a PPT"   |
-+---------------------------------------------------------------------------------------+
-                                           │
-                                           ▼
-+───────────────────────────────────────────────────────────────────────────────────────+
-|  🤖 GULIN AUTONOMOUS AGENT CORE (Max 3 / Claude / DeepSeek / Gemini / Ollama)         |
-|  ├── 🧠 Gulin Brain: Infinite semantic memory & contextual Auto-RAG                   |
-|  ├── 🗄️ Oracle Autonomous Engine: DBA Playbooks, RAC, Standby & Diagnostics           |
-|  ├── 💻 Live Terminal Bridge: Real-time bidirectional execution & streaming           |
-|  └── 📊 DocGen Suite: Automated generation of .pptx, .docx, .xlsx, and BI Dashboards  |
-+───────────────────────────────────────────────────────────────────────────────────────+
-                                           │
-                                           ▼
-+───────────────────────────────────────────────────────────────────────────────────────+
-|  🎯 DELIVERABLES:                                                                     |
-|  [✓] Oracle DB 23ai installed and kernel parameters tuned                             |
-|  [✓] Data Guard Standby synchronized with active redo log shipping                    |
-|  [✓] Executive slide deck created: executive_dba_report.pptx                         |
-|  [✓] Live Dashboard: Oracle Gulin-Insights (PDBs, RAC, Tablespaces, SGA/PGA)          |
-+───────────────────────────────────────────────────────────────────────────────────────+
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 ⚡ GULIN AGENTIC PLATFORM                              │
+├───────────────────┬───────────────────┬────────────────────┬───────────────────────────┤
+│  🧠 MULTI-AI CORE │  🗄️ DATA & DBS     │  ☁️ CLOUD & DEVOPS  │  📑 DOCGEN & BI           │
+│  • Max 3          │  • PostgreSQL     │  • SSH Multi-Host  │  • PowerPoint (.pptx)     │
+│  • Claude 3.5     │  • MySQL / Maria  │  • Docker & K8s    │  • Word Reports (.docx)   │
+│  • Gemini 2.0     │  • Oracle & Standby│ • AWS / Azure / GCP│ • Excel Workbooks (.xlsx)│
+│  • DeepSeek R1/V3 │  • MongoDB / Redis│  • Topology Map    │  • Visual BI Dashboards   │
+│  • Ollama Local   │  • Dremio BigData │  • Agentic Browser │  • Voice Wake-Word        │
+└───────────────────┴───────────────────┴────────────────────┴───────────────────────────┘
 ```
 
 ---
 
-## 🚀 Key Superpowers
+## 🚀 The 6 Core Pillars of GuLiN
 
-### 🗄️ 1. Autonomous Oracle DBA & Data Guard Standby via Natural Language
-* **Zero-Touch Installation:** Deploy **Oracle Database 19c / 21c / 23ai** including all Linux dependencies, oracle user, kernel parameters (`sysctl`, `limits.conf`), and listener configuration with a single prompt.
-* **Oracle Standby / Data Guard Automation:** Automatic provisioning of physical/logical Standby databases, `tnsnames.ora`, `listener.ora`, redo transport services, MRP synchronization, and lag checks.
-* **Proactive Diagnostics & Health Check:** Lock detection, *alert log* parsing, *Tablespace* threshold monitoring, slow SQL diagnosis, and *SGA/PGA* memory tuning.
-* **Live Visual Dashboard (Oracle Gulin-Insights):** Dedicated real-time view to inspect Pluggable Databases (PDBs), RAC clusters, active sessions, and replication flow.
-
-### 🧠 2. Frontier Multi-LLM Orchestration
-* Native support for **Max 3**, **Claude 3.5 Sonnet**, **Gemini 2.0 Pro/Flash**, **OpenAI GPT-4o**, **DeepSeek R1 / V3**, and zero-cost local execution with **Ollama**.
-* **Zero-context-loss Hot-Swapping:** Change models on the fly depending on the task (e.g., deep reasoning with Max 3/DeepSeek R1, ultra-fast streaming with Gemini Flash).
-
-### 📑 3. DocGen Suite: Executive Presentations, Word Reports & Excel Spreadsheets
-* Automatically generate **PowerPoint (`.pptx`)** slide decks, formal executive **Word (`.docx`)** summaries, and **Excel (`.xlsx`)** workbooks with charts directly from terminal diagnostic outputs.
-* Interactive **Visual BI** dashboards rendered directly within the workspace.
-
-### 💻 4. Interactive Split-Pane Workspace & High-Performance PTY
-* Dual-pane layout: Full-featured Go terminal engine + AI chat with isolated chain-of-thought reasoning.
-* 1-click execution blocks and hands-free voice control (*wake-word* support).
+### 1. 🧠 Universal Multi-AI Orchestrator (Hot-Swappable)
+* **All Major Frontier Models:** Native connection to **Max 3**, **Claude 3.5 Sonnet**, **Gemini 2.0 Pro/Flash**, **OpenAI GPT-4o**, **DeepSeek R1/V3**, and **100% offline, zero-cost private local execution with Ollama**.
+* **Zero-context-loss Hot-Swapping:** Change models on the fly without breaking conversational flow.
+* **Gulin Brain (Auto-RAG):** Long-term persistent semantic memory indexing project repositories, server configurations, historical logs, and solutions.
 
 ---
 
-## ⚡ Quick Installation
+### 2. 🗄️ DB Maestro: Universal Database & Big Data Engine
+* **Heterogeneous Database Support:** **PostgreSQL, MySQL, MariaDB, SQLite, MongoDB, Redis, Cassandra, Oracle (with Standby/Data Guard), DB2, SAP HANA, Sybase, and Dremio (Data Lakehouse / Apache Iceberg / Parquet)**.
+* **Autonomous DBA via Natural Language:**
+  * Complex SQL/NoSQL query generation, schema migrations, and execution.
+  * Proactive performance analytics, slow query tuning, index auditing, and tablespace checks.
+  * Unattended installation and configuration of high-availability clusters and replicas.
+* **Visual Data Explorer:** Live DDL relationship diagrams and real-time interactive metric dashboards.
 
-### 📦 Production Package (.dmg / .AppImage / .deb / .exe)
+---
+
+### 3. ☁️ Multi-Host SSH Infrastructure & Cloud DevOps
+* **SSH Fleet Management:** Manage and auto-connect to dozens of remote servers with autonomous diagnostic routines.
+* **Docker & Kubernetes:** Container deployment, pod inspection, live log streaming, and intelligent recovery.
+* **Service Topology Map:** Real-time visual network graph displaying connected servers, containers, databases, traffic flows, and latencies.
+* **Secure Vault (API Manager):** Centralized encryption for AWS, Azure, GCP, and custom API credentials.
+
+---
+
+### 4. 🌐 Autonomous Agentic Web Browser
+* Built-in browser fully operated by the AI agent:
+  * Autonomous web navigation, DOM parsing, form interaction, and workflow execution.
+  * Live technical documentation extraction and external API health verification.
+
+---
+
+### 5. 📑 Executive DocGen Suite & Business Intelligence
+* **Direct Office Suite Generation:** Turn terminal outputs, diagnostics, or database queries into:
+  * **PowerPoint (`.pptx`)** slide decks with clean executive design.
+  * **Word (`.docx`)** formal technical and management reports.
+  * **Excel (`.xlsx`)** workbooks with formatted sheets, formulas, and charts.
+* **Visual BI Dashboards:** Integrated interactive charts (Radar, Area, Bar, Line) rendered inside the workspace.
+
+---
+
+### 6. 💻 High-Performance Split Terminal & Tsunami SDK
+* **Go PTY Terminal Engine:** Low-latency shell emulation (zsh, bash, fish, PowerShell).
+* **Dual-Pane Workspace:** Fast terminal on one side + AI chat with isolated reasoning (*chain-of-thought*) and 1-click execution blocks on the other.
+* **Hands-Free Voice Control:** Wake-word detection to control the terminal via voice.
+* **Tsunami SDK:** Framework for building custom terminal micro-applications with Go and Virtual DOM.
+
+---
+
+## ⚡ 1-Line Installation
+
+### 📦 Production Installer (Auto-packages .dmg, .AppImage, .deb, .exe)
 
 ```bash
 git clone https://github.com/jorgeurtubiam-ship-it/Gulin_ia.git
@@ -106,22 +123,35 @@ task dev
 
 ---
 
-## 💡 Example Natural Language Prompts
+## 💡 Real-World Prompts
 
-| Prompt | Agent Action |
-| :--- | :--- |
-| `> "Install Oracle DB 23ai on this server and configure a PDB named ERP_PROD"` | Sets up prerequisites, runs silent installation, and provisions the PDB. |
-| `> "Check Data Guard Standby status and verify if there is any archive gap"` | Queries `V$ARCHIVE_DEST_STATUS`, `V$DATAGUARD_STATS`, computes lag, and reports status. |
-| `> "Analyze database CPU and memory metrics and create an executive Word report"` | Extracts AWR/ASH metrics and compiles a formatted `performance_report.docx`. |
-| `> "Find blocking sessions and generate the resolution plan"` | Inspects `V$SESSION` and `V$SQL`, tracks the root blocker, and proposes kill/tune actions. |
+```bash
+# DevOps & Cloud
+> @gulin "Inspect AWS payment container logs, diagnose root cause of crash, and restart the pod"
+
+# Multi-Database & Big Data
+> @gulin "Join PostgreSQL customer records with Dremio parquet logs and generate a visual chart"
+
+# Automation & Executive Reporting
+> @gulin "Audit security across production servers and compile an executive summary in Word and PowerPoint"
+
+# Fullstack Engineering
+> @gulin "Profile this Go/Node.js endpoint, resolve the bottleneck, and create a git commit"
+```
 
 ---
 
-## 🏗️ Architecture & Technology Stack
+## 🏗️ Feature Matrix: GuLiN vs Traditional Tools
 
-- **Frontend:** React, TypeScript, Vite, Electron, Monaco Editor, Tailwind CSS, Recharts, xterm.js
-- **Backend:** Go Core, Go PTY, SQLite, Native Oracle (`go-ora`), PostgreSQL, MySQL, MongoDB, Dremio
-- **AI Engine:** Max 3, Claude 3.5, Gemini 2.0, DeepSeek R1/V3, OpenAI, Ollama
+| Feature | GuLiN Terminal | Standard Terminal | Web AI Chatbots |
+| :--- | :---: | :---: | :---: |
+| **Direct Terminal Execution** | ✅ Bidirectional & Native | ✅ Manual only | ❌ Copy-paste only |
+| **Long-Term Memory (Auto-RAG)** | ✅ Persistent Context | ❌ No memory | ❌ Ephemeral sessions |
+| **Multi-DB Engine (12+ DBs)** | ✅ Native SQL & NoSQL | ❌ Requires CLI tools | ❌ Text output only |
+| **DocGen (.pptx, .docx, .xlsx)** | ✅ Autonomous Export | ❌ Not available | ❌ Markdown only |
+| **Agentic Web Browser** | ✅ Autonomous DOM Ops | ❌ Not available | ⚠️ Limited web search |
+| **Multi-LLM (Max 3, Claude, Ollama)** | ✅ Hot-swappable | ❌ Not available | ❌ Single provider |
+| **Visual Infrastructure Map** | ✅ Live Topology | ❌ Not available | ❌ Not available |
 
 ---
 
