@@ -1,106 +1,169 @@
-# 🚀 GuLiN Terminal — The Ultimate Agentic OS & Terminal
+<div align="center">
 
-![GuLiN Banner](https://img.shields.io/badge/GuLiN-v2.0.4-blue?style=for-the-badge&logo=ai&color=6366f1)
-![Multi-IA](https://img.shields.io/badge/Architecture-Multi--IA-green?style=for-the-badge)
-![Agentic](https://img.shields.io/badge/Mode-Full--Agentic-orange?style=for-the-badge)
-![License](https://img.shields.io/github/license/jorgeurtubiam-ship-it/Gulin_ia?style=for-the-badge)
-![Stars](https://img.shields.io/github/stars/jorgeurtubiam-ship-it/Gulin_ia?style=social)
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript)
-![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=for-the-badge)
+# ⚡ GuLiN IA & Terminal
+### *The Autonomous AI Terminal & Enterprise Oracle DBA Operating System*
 
-[English](./docs/en/README.md) · [Español](./README.md) · [한국어](./README.ko.md)
+[![GitHub Stars](https://img.shields.io/github/stars/jorgeurtubiam-ship-it/Gulin_ia?style=for-the-badge&logo=github&color=38bdf8)](https://github.com/jorgeurtubiam-ship-it/Gulin_ia/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/jorgeurtubiam-ship-it/Gulin_ia?style=for-the-badge&logo=github&color=818cf8)](https://github.com/jorgeurtubiam-ship-it/Gulin_ia/network/members)
+[![Version](https://img.shields.io/badge/Release-v2.1.0-emerald?style=for-the-badge&logo=rocket)](https://github.com/jorgeurtubiam-ship-it/Gulin_ia/releases)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge&logo=apache)](./LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://golang.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Platforms](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=for-the-badge&logo=apple&logoColor=white)]()
 
-**GuLiN Terminal** es el ecosistema definitivo de **inteligencia agéntica** para ingenieros que operan en la frontera de la **IA**, el **Big Data** y la **infraestructura a gran escala**. No es solo un terminal, es un **sistema operativo cognitivo** con memoria a largo plazo, agentes expertos y herramientas de gestión de bases de datos, nube y redes integradas.
+<br/>
 
----
-
-## ✨ Características Principales
-
-- 🧠 **Orquestador Multi-IA**: Conexión nativa y conmutación en caliente entre **Ollama (Local/GPU Cloud), DeepSeek, Claude, Gemini y OpenAI**. Cambia de motor sin perder el contexto.
-- 💾 **Memoria a Largo Plazo (Gulin Brain)**: Sistema de memoria persistente con **Auto-RAG** que aprende de tus hábitos, soluciones y contexto de proyecto.
-- 🗄️ **DB Maestro**: Conexión y gestión total de **Oracle, Postgres, MySQL, MongoDB, SQLite y Dremio (Big Data)**. Genera SQL complejo y visualiza resultados al instante.
-- 🌐 **Navegador Agéntico**: Un navegador que la IA opera de forma autónoma: navega la web, interactúa con el DOM, llena formularios y extrae información crítica en tiempo real.
-- 🔑 **API Manager**: Bóveda centralizada y segura de tokens, secretos y conexiones (AWS, Azure, APIs personalizadas).
-- 🖥️ **Infraestructura SSH & CLI**: Control total de servidores remotos, Docker y servicios cloud. La IA diagnostica, repara y despliega proactivamente.
-- 📊 **Dashboards Dinámicos**: Gráficos de líneas, barras, radar, áreas y composiciones premium en segundos.
-- 🗺️ **Mapa de Infraestructura**: Visualización en tiempo real de nodos y conexiones de red.
-- 🧩 **GulinApp SDK**: Construye micro-apps de terminal (monitores, BI dashboards) con el framework **Tsunami (Go + VDom)**.
-
----
-
-## ⭐ ¿Por qué usar GuLiN?
-
-| GuLiN                                  | Terminal tradicional            |
-| -------------------------------------- | ------------------------------- |
-| Agente con memoria infinita (Auto-RAG) | Sin memoria de contexto         |
-| Multi-IA agnóstica (hot-swap)          | Un solo modelo/provider         |
-| DB Maestro integrado (SQL + NoSQL)     | Solo línea de comandos          |
-| Navegador autónomo y agéntico          | Sin navegación                 |
-| Dashboard BI nativo                    | Requiere herramientas externas  |
-
----
-
-## 📦 Instalación
-
-### Requisitos mínimos
-- **Node.js** 22 LTS · **Go** 1.25+ · npm 10+ · Xcode CLI Tools (macOS)
-
-### Instalación completa (producción)
-
-```bash
-git clone https://github.com/jorgeurtubiam-ship-it/Gulin_ia.git
-cd Gulin_ia
-chmod +x install_gulin.sh
-./install_gulin.sh
+```
+  ██████╗ ██╗   ██╗██╗     ██╗███╗   ██╗    ██╗ █████╗ 
+ ██╔════╝ ██║   ██║██║     ██║████╗  ██║    ██║██╔══██╗
+ ██║  ███╗██║   ██║██║     ██║██╔██╗ ██║    ██║███████║
+ ██║   ██║██║   ██║██║     ██║██║╚██╗██║    ██║██╔══██║
+ ╚██████╔╝╚██████╔╝███████╗██║██║ ╚████║    ██║██║  ██║
+  ╚═════╝  ╚═════╝ ╚══════╝╚═╝╚═╝  ╚═══╝    ╚═╝╚═╝  ╚═╝
 ```
 
-El instalador compila el backend Go, el frontend Electron, genera el instalador (`.dmg`, `.AppImage`, `.deb`, `.exe`) e instala la CLI (`wsh`, `gulinsrv`) en el PATH.
+**[Español](./README.es.md)** · **[English](./docs/en/README.md)** · **[한국어](./README.ko.md)** · **[Documentación](./docs/es/01-introduccion.md)**
 
-### Modo desarrollo (hot-reload)
+<p align="center">
+  <b>GuLiN</b> transforma tu terminal en un <b>Centro de Operaciones Agéntico Autónomo</b>.<br/>
+  Instala, diagnostica y configura infraestructuras complejas como <b>Oracle Database y Data Guard Standby</b> usando <b>puro Lenguaje Natural</b>.
+</p>
+
+</div>
+
+---
+
+## 🌟 ¿Qué es GuLiN?
+
+**GuLiN Terminal** es el primer sistema operativo cognitivo para terminales diseñado para **DevOps, DBAs y Cloud Architects**. Integra modelos de frontera (**Max 3, Claude 3.5, Gemini 2.0, DeepSeek R1/V3, GPT-4o y Ollama**) directamente con tu shell, bases de datos y herramientas de generación de reportes ejecutivos.
+
+```
++---------------------------------------------------------------------------------------+
+|  👤 USUARIO (Lenguaje Natural):                                                       |
+|  "Instala Oracle DB 23ai, configura réplica Data Guard Standby y dame un reporte PPT" |
++---------------------------------------------------------------------------------------+
+                                           │
+                                           ▼
++───────────────────────────────────────────────────────────────────────────────────────+
+|  🤖 GULIN AUTONOMOUS AGENT CORE (Max 3 / Claude / DeepSeek / Gemini / Ollama)         |
+|  ├── 🧠 Gulin Brain: Memoria semántica infinita y Auto-RAG contextual                 |
+|  ├── 🗄️ Oracle Autonomous Engine: Playbooks DBA, DDL/DML, RAC, Standby & Diagnostics |
+|  ├── 💻 Live Terminal Bridge: Ejecución segura y piping bidireccional en tiempo real  |
+|  └── 📊 DocGen Suite: Generación directa de .pptx, .docx, .xlsx y Dashboards BI       |
++───────────────────────────────────────────────────────────────────────────────────────+
+                                           │
+                                           ▼
++───────────────────────────────────────────────────────────────────────────────────────+
+|  🎯 RESULTADOS:                                                                       |
+|  [✓] Oracle DB 23ai instalado y parámetros de kernel optimizados                     |
+|  [✓] Data Guard Standby sincronizado con log-shipping activo                          |
+|  [✓] Presentación ejecutiva generada: executive_dba_report.pptx                      |
+|  [✓] Dashboard en vivo: Oracle Gulin-Insights (PDBs, RAC, Tablespaces, SGA/PGA)       |
++───────────────────────────────────────────────────────────────────────────────────────+
+```
+
+---
+
+## 🚀 Superpoderes y Características Destacadas
+
+### 🗄️ 1. Oracle DBA Autónomo & Data Guard Standby en Lenguaje Natural
+* **Instalación Zero-Touch:** Despliega motores **Oracle Database 19c / 21c / 23ai** con todas las dependencias, usuarios `oracle`, configuración de kernel (`sysctl`, `limits.conf`) y listener con una sola frase.
+* **Configuración de Oracle Standby / Data Guard:** Creación automática de bases de datos Standby física/lógica, configuración de `tnsnames.ora`, `listener.ora`, transporte de redo logs, sincronización MRP y verificación de lag.
+* **Diagnóstico y Health Check Proactivo:** Detección de bloqueos (locks), análisis de *alert logs*, monitoreo de *Tablespaces*, optimización de consultas lentas y ajuste de memoria *SGA / PGA*.
+* **Dashboard Visual en Vivo (Oracle Gulin-Insights):** Vista dedicada integrada para monitorear Pluggable Databases (PDBs), clústeres RAC, sesiones activas y flujos de replicación.
+
+### 🧠 2. Orquestador Multi-IA de Frontera
+* Soporte nativo para **Max 3**, **Claude 3.5 Sonnet**, **Gemini 2.0 Pro/Flash**, **OpenAI GPT-4o**, **DeepSeek R1 / V3** y ejecución local **100% offline con Ollama**.
+* **Hot-Swap sin pérdida de contexto:** Cambia de modelo al instante según el tipo de tarea (ej. razonamiento profundo con Max 3/DeepSeek R1, streaming ultra-rápido con Gemini Flash).
+
+### 📑 3. DocGen Suite: Presentaciones, Informes Word y Hojas Excel
+* Genera presentaciones en **PowerPoint (`.pptx`)**, reportes ejecutivos en **Word (`.docx`)** y hojas de cálculo con gráficos en **Excel (`.xlsx`)** a partir del diagnóstico de tus servidores o bases de datos.
+* Integra visualizaciones ejecutivas **Visual BI** con gráficos interactivos directo en el espacio de trabajo.
+
+### 💻 4. Terminal Híbrido Split & Workspace Cognitivo
+* Panel dividido interactivo: Terminal de alto rendimiento (Go + PTY) + Chat IA con razonamiento aislado (*chain-of-thought*).
+* Botones de ejecución directa en el terminal con 1 clic y soporte para control por voz manos libres (*wake-word*).
+* Memoria persistente **Gulin Brain** que recuerda tu infraestructura, servidores SSH y reglas de negocio.
+
+---
+
+## ⚡ Instalación Rápida
+
+### 📦 Opción 1: Instalación Rápida (Recomendada)
+
+```bash
+# Clonar y compilar instalador nativo (.dmg / .AppImage / .deb / .exe)
+git clone https://github.com/jorgeurtubiam-ship-it/Gulin_ia.git
+cd Gulin_ia
+chmod +x install.sh
+./install.sh
+```
+
+### 🛠️ Opción 2: Modo Desarrollo (Hot-Reload)
 
 ```bash
 npm install && task build
 task dev
 ```
 
-### Cross-compilación desde macOS
+---
 
-```bash
-brew install zig          # requerido para CGO
-./install_gulin.sh --windows   # genera .exe
-./install_gulin.sh --linux     # genera .AppImage + .deb
+## 💡 Ejemplos de Uso en Lenguaje Natural
+
+| Tu solicitud a GuLiN | Acción que ejecuta el Agente |
+| :--- | :--- |
+| `> "Instala Oracle DB 23ai en este servidor Linux y crea una PDB llamada ERP_PROD"` | Configura paquetes, variables de entorno, ejecuta instalador silencioso y crea la PDB. |
+| `> "Revisa el estado de la réplica Standby y dime si hay lag de archivados"` | Consulta `V$ARCHIVE_DEST_STATUS`, `V$DATAGUARD_STATS`, calcula el desfase y reporta el estado. |
+| `> "Analiza el uso de CPU y memoria de la base de datos y genera un informe Word para el cliente"` | Extrae AWR/ASH metrics, arma tablas estadísticas y compila `reporte_rendimiento.docx`. |
+| `> "Hay lentitud en el servidor; identifica queries bloqueantes y genera el script de kill/tune"` | Inspecciona `V$SESSION` y `V$SQL`, identifica la sesión raíz del lock y genera el plan de resolución. |
+
+---
+
+## 🏗️ Arquitectura y Stack Tecnológico
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           FRONTEND (React + Vite)                       │
+│   • Monaco Editor   • Tailwind CSS   • Recharts BI   • xterm.js PTY     │
+│   • Streamdown Markdown   • Oracle Gulin-Insights   • Workspace Split   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ IPC / WebSockets
+┌────────────────────────────────────▼────────────────────────────────────┐
+│                             BACKEND (Go Core)                           │
+│   • Go PTY Terminal Engine    • SQLite & FileStore Engine               │
+│   • Multi-AI Streaming SDK    • SSH & Cloud Orchestrator                │
+│   • Native Oracle (go-ora)    • PostgreSQL / MySQL / MongoDB / Dremio   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🏗️ Stack Tecnológico
+## 🎯 Configuración y Etiquetas Recomendadas para GitHub
 
-- **Backend:** Go (arquitectura modular `pkg/`)
-- **Frontend:** TypeScript / React (Vite · Electron) · Tailwind · Recharts · Monaco Editor
-- **ORM/DB:** Oracle, Postgres, MySQL, MongoDB, SQLite, Dremio
-- **IA:** Ollama, DeepSeek, Claude, Gemini, OpenAI, Bedrock, Anthropic
-
----
-
-## 🚀 Roadmap
-
-Consúltalo en [ROADMAP.md](./ROADMAP.md). Próximos hitos:
-- Conmutación Multi-IA cross-provider en caliente (en curso)
+Para maximizar la visibilidad y el impacto en GitHub:
+* **About Description:** `⚡ Autonomous AI Terminal & Enterprise Oracle DBA Agent. Zero-touch Oracle DB & Standby Data Guard setup via Natural Language. Powered by Max 3, Claude 3.5, Gemini & DeepSeek.`
+* **Website:** `https://ecogulin.cl` (Contacto: `contacto@ecogulin.cl`)
+* **Topics:** `terminal`, `ai`, `agentic-ai`, `oracle-database`, `data-guard`, `dba`, `devops`, `claude-3-5`, `gemini`, `deepseek`, `go`, `react`, `typescript`, `sysadmin`, `database-management`
 
 ---
 
-## 🤝 Contribuciones
+## 🤝 Comunidad y Contribuciones
 
-¡Las contribuciones son bienvenidas! Revisa [CONTRIBUTING.md](./CONTRIBUTING.md) y el [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+¡Las contribuciones son bienvenidas y muy apreciadas!
+1. Haz un **Fork** del proyecto.
+2. Crea tu rama de características (`git checkout -b feature/MiNuevaCaracteristica`).
+3. Realiza tus cambios y haz commit (`git commit -m 'feat: agrega soporte para...'`).
+4. Haz push a la rama (`git push origin feature/MiNuevaCaracteristica`).
+5. Abre un **Pull Request**.
+
+Consulta [CONTRIBUTING.md](./CONTRIBUTING.md) y nuestro [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
 
 ---
 
 ## 📄 Licencia
 
-Distribuido bajo la **Apache License 2.0**. Ver [LICENSE](./LICENSE).
+Distribuido bajo la Licencia **Apache 2.0**. Consulta [`LICENSE`](./LICENSE) para más detalles.
 
----
-
-**Desarrollado por [Jorge Urtubia](https://github.com/jorgeurtubiam-ship-it)**  
-*GuLiN Terminal: Donde la IA se convierte en acción.*
+<div align="center">
+  <sub>Desarrollado con ❤️ por <b><a href="https://github.com/jorgeurtubiam-ship-it">Jorge Urtubia</a></b> y el equipo de <b><a href="mailto:contacto@ecogulin.cl">EcoGulin</a></b>.</sub>
+</div>
