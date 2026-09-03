@@ -3,8 +3,8 @@
 
 import { useTranslation } from "@/app/store/i18n";
 import { GulinStreamdown } from "@/app/element/streamdown";
-import { cn } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { cn, fireAndForget } from "@/util/util";
+import { useAtom, useAtomValue } from "jotai";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { getFileIcon } from "./ai-utils";
 import { AIFeedbackButtons } from "./aifeedbackbuttons";
@@ -13,6 +13,8 @@ import { GulinUIMessage, GulinUIMessagePart } from "./aitypes";
 import { GulinAIModel } from "./gulinai-model";
 import { decodeWAFText } from "./ai-utils";
 import { getSettingsKeyAtom } from "@/app/store/global";
+import { VoiceService } from "./voice/voice-service";
+import { voiceStateAtom } from "./voice/voice-atoms";
 import { ChatBiSplit } from "./chatBiSplit";
 import { CascadeProgress, CascadeStep } from "./cascade-progress";
 
@@ -143,27 +145,26 @@ const AIMessagePart = memo(({ part, role, isStreaming }: AIMessagePartProps) => 
     if (!part || typeof part !== "object") return null;
 
     if (part.type === "text") {
-        const content = (part as any)?.text || (part as any)?.content || "";
+        const rawContent = (part as any)?.text || (part as any)?.content || "";
 
         if (role === "user") {
-            return <div className="whitespace-pre-wrap break-words">{content}</div>;
-        } else {
-            return (
+            return <div className="whitespace-pre-wrap break-words">{rawContent}</div>;
+        }
+
+        const cleanText = rawContent.replace(/<(?:think|thought)>[\s\S]*?(?:<\/(?:think|thought)>|$)/gi, "").trim();
+
+        if (!cleanText) return null;
+
+        return (
+            <div className="w-full">
                 <GulinStreamdown
-                    text={decodeWAFText(content)}
+                    text={decodeWAFText(cleanText)}
                     parseIncompleteMarkdown={isStreaming}
                     className="text-gray-100"
                     codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
                 />
-            );
-        }
-    }
-
-    if (part.type === "reasoning") {
-        const reasoning = (part as any)?.reasoning || (part as any)?.text || (part as any)?.content || "";
-        if (!reasoning) return null;
-        
-        return <AIReasoningBlock reasoning={reasoning} isStreaming={isStreaming} />;
+            </div>
+        );
     }
 
     return null;
@@ -180,9 +181,6 @@ const isDisplayPart = (part: GulinUIMessagePart): boolean => {
     if (!part || typeof part.type !== "string") return false;
     return (
         part.type === "text" ||
-        part.type === "reasoning" || // Permitir renderizado de razonamiento
-        part.type === "data-tooluse" ||
-        part.type === "data-toolprogress" ||
         part.type === "data-bi" ||
         (part.type.startsWith("tool-") && "state" in part && part.state === "input-available")
     );
@@ -230,6 +228,166 @@ const groupMessageParts = (parts: GulinUIMessagePart[]): MessagePart[] => {
     return grouped;
 };
 
+// ---- AIToolApprovalBanner: Prominent Approval Card for actions needing permission ----
+interface AIToolApprovalBannerProps {
+    parts: Array<GulinUIMessagePart & { type: "data-tooluse" }>;
+}
+
+export const AIToolApprovalBanner = memo(({ parts }: AIToolApprovalBannerProps) => {
+    const { t } = useTranslation();
+    const [actionStates, setActionStates] = useState<Record<string, "approved" | "denied">>({});
+
+    const activeParts = parts.filter(p => p?.data?.toolcallid && !actionStates[p.data.toolcallid]);
+    if (parts.length === 0 || activeParts.length === 0) return null;
+
+    const handleApprove = (toolcallid: string) => {
+        setActionStates(prev => ({ ...prev, [toolcallid]: "approved" }));
+        GulinAIModel.getInstance().toolUseSendApproval(toolcallid, "user-approved");
+    };
+
+    const handleDeny = (toolcallid: string) => {
+        setActionStates(prev => ({ ...prev, [toolcallid]: "denied" }));
+        GulinAIModel.getInstance().toolUseSendApproval(toolcallid, "user-denied");
+    };
+
+    const handleApproveAll = () => {
+        activeParts.forEach(p => {
+            if (p.data?.toolcallid) {
+                setActionStates(prev => ({ ...prev, [p.data!.toolcallid]: "approved" }));
+                GulinAIModel.getInstance().toolUseSendApproval(p.data.toolcallid, "user-approved");
+            }
+        });
+    };
+
+    const handleDenyAll = () => {
+        activeParts.forEach(p => {
+            if (p.data?.toolcallid) {
+                setActionStates(prev => ({ ...prev, [p.data!.toolcallid]: "denied" }));
+                GulinAIModel.getInstance().toolUseSendApproval(p.data.toolcallid, "user-denied");
+            }
+        });
+    };
+
+    const handleOpenDiff = (toolData: any) => {
+        if (toolData.inputfilename && toolData.toolcallid) {
+            fireAndForget(() => GulinAIModel.getInstance().openDiff(toolData.inputfilename, toolData.toolcallid));
+        }
+    };
+
+    return (
+        <div className="my-2 rounded-xl bg-gradient-to-b from-amber-950/40 via-zinc-950/80 to-zinc-950/90 border border-amber-500/30 p-3 shadow-xl backdrop-blur-md transition-all animate-fade-in">
+            {/* Banner Header */}
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-amber-500/20">
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#f59e0b] animate-ping" />
+                    <span className="text-[10px] font-mono font-bold tracking-wider text-amber-300 uppercase flex items-center gap-1.5">
+                        <i className="fa-solid fa-shield-halved text-xs text-amber-400"></i>
+                        {t("gulin.ai.message.waiting_approval") || "APROBACIÓN REQUERIDA"}
+                    </span>
+                </div>
+                {activeParts.length > 1 && (
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={handleApproveAll}
+                            className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 hover:text-white border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
+                        >
+                            <i className="fa-solid fa-check-double text-[10px]" />
+                            <span>{t("gulin.ai.tool.approve_all").replace("{count}", activeParts.length.toString())}</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleDenyAll}
+                            className="px-2.5 py-1 bg-red-600/20 hover:bg-red-600/40 text-red-300 hover:text-white border border-red-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
+                        >
+                            <i className="fa-solid fa-ban text-[10px]" />
+                            <span>{t("gulin.ai.tool.deny_all")}</span>
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* List of tools needing approval */}
+            <div className="space-y-2">
+                {activeParts.map((p, idx) => {
+                    const toolData = p.data!;
+                    const toolName = toolData.toolname;
+                    const desc = toolData.tooldesc || (toolData.parameters ? JSON.stringify(toolData.parameters) : "");
+                    const isFileWrite = toolName === "write_text_file" || toolName === "edit_text_file";
+
+                    return (
+                        <div
+                            key={toolData.toolcallid || idx}
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-zinc-900/60 border border-amber-500/20 hover:border-amber-500/40 transition-colors"
+                        >
+                            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                <div className="flex-shrink-0 w-6 h-6 rounded-md bg-amber-500/10 border border-amber-400/30 flex items-center justify-center text-amber-300 text-xs mt-0.5">
+                                    <i className={cn(
+                                        isFileWrite ? "fa-solid fa-file-pen" :
+                                        toolName.startsWith("term_") ? "fa-solid fa-terminal" :
+                                        toolName.startsWith("brain_") ? "fa-solid fa-brain" :
+                                        "fa-solid fa-gear"
+                                    )} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <code className="text-xs font-mono font-bold text-zinc-200">{toolName}</code>
+                                        {toolData.inputfilename && (
+                                            <span className="text-[10px] font-mono text-zinc-400 truncate max-w-[200px]" title={toolData.inputfilename}>
+                                                {toolData.inputfilename}
+                                            </span>
+                                        )}
+                                        {isFileWrite && toolData.inputfilename && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleOpenDiff(toolData)}
+                                                className="px-1.5 py-0.5 border border-zinc-600 hover:border-zinc-500 hover:bg-zinc-700 text-zinc-300 rounded text-[10px] cursor-pointer transition-colors flex items-center gap-1"
+                                                title={t("gulin.ai.tool.diff_title")}
+                                            >
+                                                <span>Diff</span>
+                                                <i className="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+                                            </button>
+                                        )}
+                                    </div>
+                                    {desc && (
+                                        <div className="text-[11px] text-zinc-400 mt-0.5 line-clamp-2 break-all font-mono">
+                                            {desc}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Individual Action Buttons */}
+                            <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => handleApprove(toolData.toolcallid)}
+                                    className="px-3 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 hover:text-white text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
+                                    title={t("gulin.ai.tool.approve")}
+                                >
+                                    <i className="fa-solid fa-check text-xs" />
+                                    <span>{t("gulin.ai.tool.approve")}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleDeny(toolData.toolcallid)}
+                                    className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 hover:text-white text-red-300 border border-red-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
+                                    title={t("gulin.ai.tool.deny")}
+                                >
+                                    <i className="fa-solid fa-xmark text-xs" />
+                                    <span>{t("gulin.ai.tool.deny")}</span>
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+});
+
+AIToolApprovalBanner.displayName = "AIToolApprovalBanner";
+
 // ---- Unified tool summary (Antigravity-style) ----
 interface AIMessageToolsSummaryProps {
     toolParts: Array<GulinUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }>;
@@ -247,6 +405,10 @@ const AIMessageToolsSummary = memo(({ toolParts, isStreaming, reasoning }: AIMes
 
     if (toolParts.length === 0) return null;
 
+    const pendingApprovalParts = safeToolUseParts.filter(
+        p => p.data?.approval === "needs-approval" && p.data?.status !== "completed" && p.data?.status !== "error"
+    );
+
     const pendingCount = safeToolUseParts.filter(p => p.data?.status === "pending" || !p.data?.status).length;
     const isAllDone = safeToolUseParts.length > 0 && pendingCount === 0 && !isStreaming;
     const errorCount = safeToolUseParts.filter(p => p.data?.status === "error").length;
@@ -254,7 +416,7 @@ const AIMessageToolsSummary = memo(({ toolParts, isStreaming, reasoning }: AIMes
     const totalTime = safeToolUseParts.reduce((acc, p) => acc + (p.data?.runts || 0), 0);
     const totalCount = safeToolUseParts.length;
 
-    // While streaming / pending: show compact, sleek live activity indicator (max 3 recent tools)
+    // While streaming / pending: show compact, sleek live activity indicator (max 3 recent tools) + approval prompt
     if (!isAllDone) {
         const cascadeSteps: CascadeStep[] = safeToolUseParts.slice(-3).map((p, idx) => {
             const toolName = p.data?.toolname || t("gulin.ai.tool.execution");
@@ -268,16 +430,20 @@ const AIMessageToolsSummary = memo(({ toolParts, isStreaming, reasoning }: AIMes
                 target: targetStr,
                 status: p.data?.status === "completed" ? "completed" : p.data?.status === "error" ? "error" : "running",
                 detail: p.data?.runts ? `${p.data.runts}ms` : undefined,
+                needsApproval: p.data?.approval === "needs-approval" && p.data?.status !== "completed",
             };
         });
 
         return (
-            <div className="mt-2">
+            <div className="mt-2 space-y-2">
                 <CascadeProgress
                     title={`EJECUTANDO ACCIONES (${safeToolUseParts.length})`}
                     steps={cascadeSteps}
                     isStreaming={isStreaming}
                 />
+                {pendingApprovalParts.length > 0 && (
+                    <AIToolApprovalBanner parts={pendingApprovalParts} />
+                )}
             </div>
         );
     }
@@ -285,31 +451,36 @@ const AIMessageToolsSummary = memo(({ toolParts, isStreaming, reasoning }: AIMes
     // Collapsed state — Antigravity-style single inline text line
     if (!isExpanded) {
         return (
-            <div
-                className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors select-none w-fit group"
-                onClick={() => setIsExpanded(true)}
-            >
-                <i className="fa-solid fa-chevron-right text-[8px] w-2 text-center opacity-50 group-hover:opacity-100 transition-opacity" />
-                <i className="fa-solid fa-microchip opacity-60 group-hover:text-teal-400 transition-colors" />
-                <span className="font-medium">
-                    {isStreaming
-                        ? t("gulin.ai.tool.execution")
-                        : `${t("gulin.ai.tool.execution")} (${totalCount})`}
-                </span>
-                {isAllDone && (
-                    <>
-                        <span className="opacity-30">·</span>
-                        {errorCount > 0 ? (
-                            <span className="text-red-400/80">
-                                ✗ {errorCount} {errorCount === 1 ? "error" : "errores"}
-                            </span>
-                        ) : (
-                            <span className="text-emerald-500/80">✓ {successCount} {successCount === 1 ? "éxito" : "éxitos"}</span>
-                        )}
-                        {totalTime > 0 && (
-                            <span className="opacity-40 font-mono">({totalTime < 1000 ? `${totalTime}ms` : `${(totalTime/1000).toFixed(1)}s`})</span>
-                        )}
-                    </>
+            <div className="space-y-2">
+                <div
+                    className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors select-none w-fit group"
+                    onClick={() => setIsExpanded(true)}
+                >
+                    <i className="fa-solid fa-chevron-right text-[8px] w-2 text-center opacity-50 group-hover:opacity-100 transition-opacity" />
+                    <i className="fa-solid fa-microchip opacity-60 group-hover:text-teal-400 transition-colors" />
+                    <span className="font-medium">
+                        {isStreaming
+                            ? t("gulin.ai.tool.execution")
+                            : `${t("gulin.ai.tool.execution")} (${totalCount})`}
+                    </span>
+                    {isAllDone && (
+                        <>
+                            <span className="opacity-30">·</span>
+                            {errorCount > 0 ? (
+                                <span className="text-red-400/80">
+                                    ✗ {errorCount} {errorCount === 1 ? "error" : "errores"}
+                                </span>
+                            ) : (
+                                <span className="text-emerald-500/80">✓ {successCount} {successCount === 1 ? "éxito" : "éxitos"}</span>
+                            )}
+                            {totalTime > 0 && (
+                                <span className="opacity-40 font-mono">({totalTime < 1000 ? `${totalTime}ms` : `${(totalTime/1000).toFixed(1)}s`})</span>
+                            )}
+                        </>
+                    )}
+                </div>
+                {pendingApprovalParts.length > 0 && (
+                    <AIToolApprovalBanner parts={pendingApprovalParts} />
                 )}
             </div>
         );
@@ -350,13 +521,18 @@ const getThinkingMessage = (
     }
 
     if (!Array.isArray(parts) || parts.length === 0) return { message: t("gulin.ai.message.thinking") };
+
+    // Check if ANY tool is waiting for approval
+    const hasWaitingApproval = parts.some(
+        p => p?.type === "data-tooluse" && (p as any)?.data?.approval === "needs-approval" && (p as any)?.data?.status !== "completed" && (p as any)?.data?.status !== "error"
+    );
+    if (hasWaitingApproval) {
+        return { message: t("gulin.ai.message.waiting_approval"), isWaitingApproval: true };
+    }
+
     const lastPart = parts[parts.length - 1];
 
     if (!lastPart || typeof lastPart !== "object") return { message: t("gulin.ai.message.thinking") };
-
-    if (lastPart.type === "data-tooluse" && (lastPart as any)?.data?.approval === "needs-approval") {
-        return { message: t("gulin.ai.message.waiting_approval"), isWaitingApproval: true };
-    }
 
     if (lastPart.type === "reasoning") {
         const reasoningContent = (lastPart as any)?.reasoning || (lastPart as any)?.text || (lastPart as any)?.content || "";
@@ -423,29 +599,11 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
     
     // Filtrar partes válidas con guarda de tipo
     const validParts = parts.filter(p => p && typeof p.type === "string");
-    const hasToolCalls = validParts.some(p => p.type === "data-tooluse" || p.type === "data-toolprogress");
     // All tool parts collected flat for the unified summary block
     const allToolParts = validParts.filter(
         (p): p is GulinUIMessagePart & { type: "data-tooluse" | "data-toolprogress" } =>
             p.type === "data-tooluse" || p.type === "data-toolprogress"
     );
-    const displayParts = validParts.filter(p => {
-        if (!isDisplayPart(p)) return false;
-        // Tool parts are removed from inline rendering — unified block handles them
-        if (p.type === "data-tooluse" || p.type === "data-toolprogress") return false;
-        // Si hay herramientas, ocultamos el razonamiento del cuerpo del chat 
-        // para que solo se vea en el modal (moval)
-        if (p.type === "reasoning" && hasToolCalls) return false;
-        // Filtrar partes de texto vacías o con placeholder de no content
-        if (p.type === "text") {
-            const raw = ((p as any)?.text || (p as any)?.content || "").trim();
-            const decoded = decodeWAFText(raw).trim();
-            if (!decoded || decoded === "(no text content)" || decoded === "(sin contenido de texto)") {
-                return false;
-            }
-        }
-        return true;
-    });
     
     const fileParts = validParts.filter((part): part is GulinUIMessagePart & { type: "data-userfile" } => 
         part.type === "data-userfile" && part.data !== undefined
@@ -456,45 +614,96 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
     const compactMode = useAtomValue(getSettingsKeyAtom("gulin.ai.compact.mode"));
     const [isMessageCopied, setIsMessageCopied] = useState(false);
 
-    // Separate intermediate tool monologue/observations from the final synthesized response
-    const { intermediateText, finalParts } = useMemo(() => {
-        if (message.role !== "assistant" || allToolParts.length === 0) {
-            return { intermediateText: "", finalParts: displayParts };
+    // Group all reasoning and intermediate monologue into unifiedReasoning placed at the bottom
+    const { unifiedReasoning, displayParts } = useMemo(() => {
+        if (message.role !== "assistant") {
+            const userParts = validParts.filter(p => p.type === "text" || p.type === "data-userfile");
+            return { unifiedReasoning: "", displayParts: userParts };
         }
 
         let lastToolIndex = -1;
-        displayParts.forEach((p, idx) => {
-            if (p && (p.type === "data-tooluse" || p.type === "data-toolprogress")) {
+        validParts.forEach((p, idx) => {
+            if (p.type === "data-tooluse" || p.type === "data-toolprogress") {
                 lastToolIndex = idx;
             }
         });
 
-        if (lastToolIndex === -1) {
-            return { intermediateText: "", finalParts: displayParts };
-        }
+        const reasoningChunks: string[] = [];
+        const cleanParts: GulinUIMessagePart[] = [];
 
-        const intermediateList: string[] = [];
-        const afterToolList: GulinUIMessagePart[] = [];
-
-        displayParts.forEach((p, idx) => {
-            if (idx < lastToolIndex) {
-                if (p.type === "text" || p.type === "reasoning") {
-                    const txt = ((p as any)?.text || (p as any)?.reasoning || (p as any)?.content || "").trim();
-                    if (txt) intermediateList.push(txt);
+        validParts.forEach((p, idx) => {
+            if (p.type === "data-tooluse" || p.type === "data-toolprogress") {
+                const toolThought = (p as any)?.data?.thought;
+                if (toolThought && typeof toolThought === "string" && toolThought.trim()) {
+                    reasoningChunks.push(toolThought.trim());
                 }
-            } else if (idx > lastToolIndex) {
-                afterToolList.push(p);
+                return;
+            }
+
+            if (p.type === "reasoning") {
+                const r = ((p as any)?.reasoning || (p as any)?.text || (p as any)?.content || "").trim();
+                if (r) reasoningChunks.push(r);
+                return;
+            }
+
+            if (p.type === "text") {
+                const raw = ((p as any)?.text || (p as any)?.content || "");
+                
+                // Extract think/thought tags
+                const thinkRegex = /<(?:think|thought)>([\s\S]*?)(?:<\/(?:think|thought)>|$)/gi;
+                let match: RegExpExecArray | null;
+                while ((match = thinkRegex.exec(raw)) !== null) {
+                    const t = match[1].trim();
+                    if (t) reasoningChunks.push(t);
+                }
+
+                const clean = raw.replace(/<(?:think|thought)>[\s\S]*?(?:<\/(?:think|thought)>|$)/gi, "").trim();
+                const decodedClean = decodeWAFText(clean).trim();
+
+                if (!decodedClean || decodedClean === "(no text content)" || decodedClean === "(sin contenido de texto)") {
+                    return;
+                }
+
+                // If before last tool call, it's intermediate observation / monologue -> include in reasoning
+                if (lastToolIndex !== -1 && idx < lastToolIndex) {
+                    // Ignore stray single punctuation (e.g. "." or ".." or ",") but keep real thoughts
+                    if (!/^[\s.,;:\-_]+$/.test(decodedClean)) {
+                        reasoningChunks.push(decodedClean);
+                    }
+                } else {
+                    // Ignore stray single dots / punctuation between tool calls if tools exist
+                    if (lastToolIndex !== -1 && /^[\s.,;:\-_]+$/.test(decodedClean)) {
+                        return;
+                    }
+                    cleanParts.push({ ...p, text: clean } as any);
+                }
+                return;
+            }
+
+            if (p.type === "data-bi") {
+                cleanParts.push(p);
+                return;
+            }
+
+            if (isDisplayPart(p)) {
+                cleanParts.push(p);
             }
         });
 
+        // Deduplicate consecutive identical reasoning chunks
+        const uniqueReasoningChunks = reasoningChunks.filter((chunk, i) => {
+            if (!chunk) return false;
+            return i === 0 || chunk !== reasoningChunks[i - 1];
+        });
+
         return {
-            intermediateText: intermediateList.join("\n\n"),
-            finalParts: afterToolList,
+            unifiedReasoning: uniqueReasoningChunks.join("\n\n"),
+            displayParts: cleanParts,
         };
-    }, [message.role, allToolParts.length, displayParts]);
+    }, [message.role, validParts]);
 
     const thinkingData = getThinkingMessage(validParts, isStreaming, message.role, t);
-    const groupedParts = useMemo(() => groupMessageParts(finalParts), [finalParts]);
+    const groupedParts = useMemo(() => groupMessageParts(displayParts), [displayParts]);
     const seenBlockIds = new Set<string>();
 
     const allText = validParts
@@ -505,6 +714,27 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
         })
         .filter(t => t != null)
         .join("\n\n");
+
+    const [voiceState] = useAtom(voiceStateAtom);
+    const [isPlayingThis, setIsPlayingThis] = useState(false);
+
+    const handleToggleSpeech = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (voiceState === "speaking" && isPlayingThis) {
+            VoiceService.getInstance().stopSpeaking();
+            setIsPlayingThis(false);
+        } else {
+            VoiceService.getInstance().stopSpeaking();
+            setIsPlayingThis(true);
+            VoiceService.getInstance().speakResponse(allText);
+        }
+    };
+
+    useEffect(() => {
+        if (voiceState !== "speaking") {
+            setIsPlayingThis(false);
+        }
+    }, [voiceState]);
 
     const handleCopyMessage = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -534,6 +764,20 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                 {!isStreaming && allText && message.role === "assistant" && (
                     <div className="absolute top-2.5 right-3 opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 flex items-center gap-1 bg-zinc-900/90 backdrop-blur-md px-2 py-0.5 rounded-lg border border-white/10 shadow-lg select-none">
                         <button
+                            type="button"
+                            onClick={handleToggleSpeech}
+                            className={cn(
+                                "p-1 rounded transition-colors text-[11px] flex items-center gap-1 cursor-pointer",
+                                isPlayingThis
+                                    ? "text-purple-400 bg-purple-500/20 hover:bg-purple-500/30"
+                                    : "text-zinc-400 hover:text-teal-300 hover:bg-white/10"
+                            )}
+                            title={isPlayingThis ? "Detener voz" : "Escuchar esta respuesta"}
+                        >
+                            <i className={cn(isPlayingThis ? "fa-solid fa-stop text-purple-400" : "fa-solid fa-volume-high")} />
+                        </button>
+                        <button
+                            type="button"
                             onClick={handleCopyMessage}
                             className="p-1 text-zinc-400 hover:text-white rounded hover:bg-white/10 transition-colors text-[11px] flex items-center gap-1 cursor-pointer"
                             title="Copiar respuesta completa"
@@ -543,15 +787,11 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                         </button>
                     </div>
                 )}
-                {displayParts.length === 0 && allToolParts.length === 0 && !isStreaming && !thinkingData ? (
+                {displayParts.length === 0 && allToolParts.length === 0 && !unifiedReasoning && !isStreaming && !thinkingData ? (
                     <div className="whitespace-pre-wrap break-words opacity-70 italic">{t("gulin.ai.message.no_content")}</div>
                 ) : (
                     <div className="space-y-2">
-                        {/* Collapsed intermediate thoughts / monologue if any */}
-                        {intermediateText && (
-                            <AIReasoningBlock reasoning={intermediateText} isStreaming={isStreaming} />
-                        )}
-                        {/* Final clean synthesized response */}
+                        {/* Main clean synthesized response */}
                         {groupedParts.map((group, index: number) => {
                             if (group.type === "bigroup") {
                                 // Mapeamos las partes data-bi a ChatBiWidgetProps
@@ -565,14 +805,25 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                                 </div>
                             );
                         })}
-                        {/* Unified tool summary block — placed cleanly at the bottom */}
+
+                        {/* Unified tool summary block — placed cleanly below response */}
                         {message.role === "assistant" && allToolParts.length > 0 && (
                             <AIMessageToolsSummary
                                 toolParts={allToolParts}
                                 isStreaming={isStreaming}
-                                reasoning={allText}
+                                reasoning={unifiedReasoning || allText}
                             />
                         )}
+
+                        {/* Unified model reasoning block — grouped into a single block at the bottom */}
+                        {message.role === "assistant" && unifiedReasoning && (
+                            <AIReasoningBlock
+                                reasoning={unifiedReasoning}
+                                isStreaming={isStreaming && displayParts.length === 0}
+                            />
+                        )}
+
+                        {/* Live Thinking Status during streaming if no text yet */}
                         {thinkingData != null && thinkingData.message && !compactMode && (
                             <div className="mt-2 pt-2 border-t border-white/5">
                                 <AIThinking 
@@ -581,6 +832,8 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                                 />
                             </div>
                         )}
+
+                        {/* Feedback Thumbs */}
                         {message.role === "assistant" && !isStreaming && feedbackEnabled && !compactMode && (
                             <div className="mt-2 pt-2 border-t border-white/5 opacity-80">
                                 <AIFeedbackButtons messageText={allText} />

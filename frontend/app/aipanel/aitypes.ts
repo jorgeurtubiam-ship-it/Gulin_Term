@@ -42,6 +42,7 @@ type GulinUIDataTypes = {
         writebackupfilename?: string;
         inputfilename?: string;
         thought?: string;
+        parameters?: Record<string, any>;
     };
 
     toolprogress: {

@@ -22,7 +22,7 @@ export function blockViewToIcon(view: string): string {
     if (view == "web") {
         return "globe";
     }
-    if (view == "gulinai") {
+    if (view == "gulinai" || view == "gulin-ai") {
         return "sparkles";
     }
     if (view == "help") {
@@ -71,7 +71,7 @@ export function blockViewToName(view: string): string {
     if (view == "web") {
         return "Web";
     }
-    if (view == "gulinai") {
+    if (view == "gulinai" || view == "gulin-ai") {
         return "GulinAI";
     }
     if (view == "help") {

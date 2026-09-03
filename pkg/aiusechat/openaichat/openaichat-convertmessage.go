@@ -288,6 +288,11 @@ func buildChatHTTPRequest(ctx context.Context, messages []ChatRequestMessage, ch
 		Messages: sanitizedMessages,
 		Stream:   !isBridgeReq, // We only force stream if it's NOT a bridge request. Bridge handles SSE wrapping.
 	}
+	if !isBridgeReq {
+		reqBody.StreamOptions = &ChatStreamOptions{
+			IncludeUsage: true,
+		}
+	}
 
 	// Model is only added to request for non-azure-legacy providers
 	if opts.Provider != uctypes.AIProvider_AzureLegacy {
@@ -325,6 +330,7 @@ func buildChatHTTPRequest(ctx context.Context, messages []ChatRequestMessage, ch
 			if isBridgeReq {
 				sanitizeToolDefinitionsForBridge(reqBody.Tools)
 			}
+			reqBody.ToolChoice = "auto"
 		}
 	}
 
@@ -820,21 +826,40 @@ func sanitizeOpenAIMessages(messages []ChatRequestMessage) []ChatRequestMessage 
 
 	var sanitized []ChatRequestMessage
 	for i, msg := range messages {
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			// STRICT: Ensure all tool calls in this assistant message have a corresponding tool response later in the list.
-			// If not, we STRIP the tool calls from the assistant message to prevent 400 errors.
-			allToolResponsesPresent := true
-			for _, tc := range msg.ToolCalls {
-				if !toolResponses[tc.ID] {
-					allToolResponsesPresent = false
-					break
+		if msg.Role == "assistant" {
+			// Strip thinking/reasoning tags (<think>...</think>, <thought>...</thought>)
+			// so that historical CoT is never resent in subsequent turns.
+			if msg.Content != "" {
+				msg.Content = aiutil.StripThinkingTags(msg.Content)
+			}
+			for k := range msg.ContentParts {
+				if msg.ContentParts[k].Type == "text" && msg.ContentParts[k].Text != "" {
+					msg.ContentParts[k].Text = aiutil.StripThinkingTags(msg.ContentParts[k].Text)
 				}
 			}
 
-			if !allToolResponsesPresent {
-				// We don't delete the whole message, just the tool_calls to keep the history flow.
-				msg.ToolCalls = nil
+			if len(msg.ToolCalls) > 0 {
+				// STRICT: Ensure all tool calls in this assistant message have a corresponding tool response later in the list.
+				// If not, we STRIP the tool calls from the assistant message to prevent 400 errors.
+				allToolResponsesPresent := true
+				for _, tc := range msg.ToolCalls {
+					if !toolResponses[tc.ID] {
+						allToolResponsesPresent = false
+						break
+					}
+				}
+
+				if !allToolResponsesPresent {
+					// We don't delete the whole message, just the tool_calls to keep the history flow.
+					msg.ToolCalls = nil
+				}
 			}
+
+			// Skip ANY assistant messages that are completely empty (no text, no tools)
+			if msg.Content == "" && len(msg.ContentParts) == 0 && len(msg.ToolCalls) == 0 {
+				continue
+			}
+
 			sanitized = append(sanitized, msg)
 			continue
 		}

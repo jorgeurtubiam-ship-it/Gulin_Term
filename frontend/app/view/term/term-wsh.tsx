@@ -123,8 +123,19 @@ export class TermWshClient extends WshClient {
         const totalLines = buffer.length;
 
         if (data.lastcommand) {
-            if (globalStore.get(termWrap.shellIntegrationStatusAtom) == null) {
-                throw new Error("Cannot get last command data without shell integration");
+            const hasIntegration = globalStore.get(termWrap.shellIntegrationStatusAtom) != null;
+            if (!hasIntegration || termWrap.promptMarkers.length === 0) {
+                // Fallback: If no shell integration markers exist, return the most recent active lines of the terminal buffer
+                const fallbackCount = Math.min(totalLines, 100);
+                const startBufferIndex = totalLines - fallbackCount;
+                const endBufferIndex = totalLines;
+                const lines = bufferLinesToText(buffer, startBufferIndex, endBufferIndex);
+                return {
+                    totallines: totalLines,
+                    linestart: 0,
+                    lines: lines,
+                    lastupdated: termWrap.lastUpdated,
+                };
             }
 
             let startBufferIndex = 0;

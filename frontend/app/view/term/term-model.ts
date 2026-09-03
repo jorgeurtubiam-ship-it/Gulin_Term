@@ -799,9 +799,11 @@ export class TermViewModel implements ViewModel {
             return false;
         }
         const shellProcStatus = globalStore.get(this.shellProcStatus);
-        if ((shellProcStatus == "done" || shellProcStatus == "init") && keyutil.checkKeyPressed(gulinEvent, "Enter")) {
-            fireAndForget(() => this.forceRestartController());
-            return false;
+        if (shellProcStatus == "done" || shellProcStatus == "init") {
+            if (keyutil.checkKeyPressed(gulinEvent, "Enter") || keyutil.checkKeyPressed(gulinEvent, "Space") || (!gulinEvent.cmd && !gulinEvent.control && gulinEvent.key && gulinEvent.key.length === 1)) {
+                fireAndForget(() => this.forceRestartController());
+                return false;
+            }
         }
         const appHandled = appHandleKeyDown(gulinEvent);
         if (appHandled) {

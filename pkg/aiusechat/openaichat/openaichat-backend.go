@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/launchdarkly/eventsource"
+	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
 	"github.com/gulindev/gulin/pkg/aiusechat/chatstore"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/web/sse"
@@ -314,6 +315,24 @@ func RunChatStep(
 
 	var msgs []*StoredChatMessage
 	if assistantMsg != nil {
+		if assistantMsg.Usage == nil || (assistantMsg.Usage.InputTokens == 0 && assistantMsg.Usage.OutputTokens == 0) {
+			inputTok := 0
+			for _, m := range messages {
+				inputTok += getMessageEffectiveTokens(m)
+			}
+			outputTok := aiutil.EstimateTokens(assistantMsg.Message.Content)
+			for _, tc := range assistantMsg.Message.ToolCalls {
+				outputTok += 50 + aiutil.EstimateTokens(tc.Function.Arguments)
+			}
+			if outputTok == 0 {
+				outputTok = 1
+			}
+			assistantMsg.Usage = &ChatUsage{
+				InputTokens:  inputTok,
+				OutputTokens: outputTok,
+				TotalTokens:  inputTok + outputTok,
+			}
+		}
 		msgs = []*StoredChatMessage{assistantMsg}
 	}
 	return stopReason, msgs, nil, nil

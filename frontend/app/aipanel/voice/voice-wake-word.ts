@@ -221,7 +221,7 @@ export class VoiceWakeWordService {
         }
 
         globalStore.set(voiceStateAtom, "processing");
-        globalStore.set(interimTranscriptAtom, "Procesando con Google...");
+        globalStore.set(interimTranscriptAtom, "Procesando en tu Mac...");
 
         try {
             const mime = this.mediaRecorder.mimeType || "audio/webm";
@@ -241,78 +241,72 @@ export class VoiceWakeWordService {
             }
 
             const audioBlob = new Blob(this.recordedChunks, { type: mime });
-            const base64Audio = await this.blobToBase64(audioBlob);
-            const googleModel = globalStore.get(googleAudioModelAtom) || "gemini-3.1-flash-lite";
-
             const aiConfigs = globalStore.get(GulinAIModel.getInstance().aiModeConfigs) || {};
-            let foundApiKey = "";
+
+            let transcript = "";
+
+            // 1. Intentar con Whisper (OpenAI)
+            let openAiKey = "";
             for (const [k, v] of Object.entries(aiConfigs)) {
-                if ((v as any)["ai:provider"] === "google" || k.includes("gemini")) {
+                if ((v as any)["ai:provider"] === "openai" || k.includes("openai")) {
                     if ((v as any)["ai:apitoken"]) {
-                        foundApiKey = (v as any)["ai:apitoken"];
+                        openAiKey = (v as any)["ai:apitoken"];
                         break;
                     }
                 }
             }
 
-            if (!foundApiKey) {
-                foundApiKey = "AIzaSyAVdLm2MSjJjvyuisFa3O4oS0u0Zoyxd-U";
+            if (openAiKey) {
+                try {
+                    const formData = new FormData();
+                    const isWebm = audioBlob.type?.includes("webm") || !audioBlob.type?.includes("mp4");
+                    const ext = isWebm ? "webm" : "mp4";
+                    const mime = isWebm ? "audio/webm" : "audio/mp4";
+                    const cleanBlob = new Blob(this.recordedChunks, { type: mime });
+                    formData.append("file", cleanBlob, `audio.${ext}`);
+                    formData.append("model", "whisper-1");
+                    formData.append("language", "es");
+
+                    const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${openAiKey}`,
+                        },
+                        body: formData,
+                    });
+
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data && data.text) {
+                            transcript = data.text.trim();
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Whisper hands-free error:", err);
+                }
             }
 
-            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${googleModel}:generateContent`;
-            const payload = {
-                contents: [
-                    {
-                        parts: [
-                            {
-                                inlineData: {
-                                    mimeType: audioBlob.type || "audio/webm",
-                                    data: base64Audio,
-                                },
-                            },
-                            {
-                                text: "Transcribe this user speech audio verbatim in its original language. Return ONLY the plain transcribed text without quotation marks, markdown formatting, or commentary.",
-                            },
-                        ],
-                    },
-                ],
-            };
-
-            const response = await fetch(endpoint, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": foundApiKey,
-                },
-                body: JSON.stringify(payload),
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-                    let transcript = data.candidates[0].content.parts[0].text.trim();
-
-                    let cleanCommand = transcript;
-                    for (const wakeWord of this.WAKE_WORDS) {
-                        if (cleanCommand.toLowerCase().startsWith(wakeWord)) {
-                            cleanCommand = cleanCommand.substring(wakeWord.length).trim();
-                            break;
-                        }
+            if (transcript) {
+                let cleanCommand = transcript;
+                for (const wakeWord of this.WAKE_WORDS) {
+                    if (cleanCommand.toLowerCase().startsWith(wakeWord)) {
+                        cleanCommand = cleanCommand.substring(wakeWord.length).trim();
+                        break;
                     }
+                }
 
-                    const finalCmd = (cleanCommand || transcript).replace(/^[,.:;! ]+/, "").trim();
+                const finalCmd = (cleanCommand || transcript).replace(/^[,.:;! ]+/, "").trim();
 
-                    if (finalCmd.length > 2) {
-                        this.playWakeSound();
-                        globalStore.set(lastQueryWasVoiceAtom, true);
-                        globalStore.set(finalTranscriptAtom, finalCmd);
-                        globalStore.set(interimTranscriptAtom, "");
+                if (finalCmd.length > 2) {
+                    this.playWakeSound();
+                    globalStore.set(lastQueryWasVoiceAtom, true);
+                    globalStore.set(finalTranscriptAtom, finalCmd);
+                    globalStore.set(interimTranscriptAtom, "");
 
-                        if (this.onSubmitCommandCallback) {
-                            this.onSubmitCommandCallback(finalCmd);
-                        }
-                        return;
+                    if (this.onSubmitCommandCallback) {
+                        this.onSubmitCommandCallback(finalCmd);
                     }
+                    return;
                 }
             }
         } catch (err) {

@@ -11,6 +11,7 @@ export interface CascadeStep {
     target?: string;
     status: "pending" | "running" | "completed" | "error";
     detail?: string;
+    needsApproval?: boolean;
 }
 
 export interface CascadeProgressProps {
@@ -71,22 +72,29 @@ export const CascadeProgress = memo(({
             <div className="p-2 space-y-1 font-mono text-xs">
                 {steps.slice(0, visibleCount).map((step, idx) => {
                     const isLast = idx === visibleCount - 1 && isStreaming;
-                    const isDone = step.status === "completed" || (!isLast && isStreaming);
+                    const isDone = step.status === "completed" || (!isLast && isStreaming && !step.needsApproval);
+                    const isApprovalPending = !!step.needsApproval;
 
                     return (
                         <div
                             key={step.id || idx}
                             className={cn(
                                 "flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-all duration-200",
-                                isLast
-                                    ? "bg-teal-950/30 border border-teal-500/30 translate-x-0.5 shadow-[0_0_8px_rgba(45,212,191,0.08)]"
-                                    : "bg-zinc-900/40 border border-white/5 opacity-80"
+                                isApprovalPending
+                                    ? "bg-amber-950/30 border border-amber-500/40 translate-x-0.5 shadow-[0_0_8px_rgba(245,158,11,0.1)]"
+                                    : isLast
+                                        ? "bg-teal-950/30 border border-teal-500/30 translate-x-0.5 shadow-[0_0_8px_rgba(45,212,191,0.08)]"
+                                        : "bg-zinc-900/40 border border-white/5 opacity-80"
                             )}
                         >
                             <div className="flex items-center gap-2 min-w-0">
                                 {isDone ? (
                                     <div className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 text-[8px]">
                                         <i className="fa-solid fa-check"></i>
+                                    </div>
+                                ) : isApprovalPending ? (
+                                    <div className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 text-[8px] animate-pulse">
+                                        <i className="fa-solid fa-hand"></i>
                                     </div>
                                 ) : (
                                     <div className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-teal-500/20 border border-teal-400/50 flex items-center justify-center text-teal-300 text-[8px]">
@@ -96,7 +104,7 @@ export const CascadeProgress = memo(({
                                 <div className="flex items-center gap-1.5 min-w-0">
                                     <span className={cn(
                                         "font-medium text-[10px] truncate",
-                                        isDone ? "text-zinc-300" : "text-teal-200"
+                                        isDone ? "text-zinc-300" : isApprovalPending ? "text-amber-200" : "text-teal-200"
                                     )}>
                                         {step.label}
                                     </span>
@@ -108,11 +116,15 @@ export const CascadeProgress = memo(({
                                 </div>
                             </div>
 
-                            {step.detail && (
+                            {isApprovalPending ? (
+                                <div className="text-[8px] font-bold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30 font-mono ml-2 shrink-0 animate-pulse">
+                                    AUTORIZACIÓN
+                                </div>
+                            ) : step.detail ? (
                                 <div className="text-[9px] text-right text-zinc-400 bg-zinc-900/80 px-1.5 py-0.5 rounded border border-white/5 font-mono ml-2 shrink-0">
                                     {step.detail}
                                 </div>
-                            )}
+                            ) : null}
                         </div>
                     );
                 })}

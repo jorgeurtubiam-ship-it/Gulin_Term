@@ -314,6 +314,20 @@ func SendInput(blockId string, inputUnion *BlockInputUnion) error {
 	if controller == nil {
 		return fmt.Errorf("no controller found for block %s", blockId)
 	}
+	status := controller.GetRuntimeStatus()
+	if status != nil && status.ShellProcStatus == Status_Done {
+		log.Printf("[blockcontroller] auto-restarting terminated controller for block %s on input\n", blockId)
+		if blockData, err := wstore.DBMustGet[*gulinobj.Block](context.Background(), blockId); err == nil && blockData != nil {
+			tabORef := gulinobj.ParseORefNoErr(blockData.ParentORef)
+			if tabORef != nil && tabORef.OID != "" {
+				_ = ResyncController(context.Background(), tabORef.OID, blockId, nil, true)
+				controller = getController(blockId)
+			}
+		}
+	}
+	if controller == nil {
+		return fmt.Errorf("no controller found for block %s after restart", blockId)
+	}
 	sendConnMonitorInputNotification(controller)
 	return controller.SendInput(inputUnion)
 }

@@ -27,3 +27,30 @@ func TestEstimateTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestStripThinkingTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"Empty", "", ""},
+		{"No thinking", "Hello world! Here is the solution.", "Hello world! Here is the solution."},
+		{"Simple think tag", "<think>Let me calculate 2+2=4</think>The answer is 4.", "The answer is 4."},
+		{"Simple thought tag", "<thought>\nStep 1: check files\nStep 2: read line\n</thought>\n\nFound 1 match.", "Found 1 match."},
+		{"Case insensitive", "<THINK>Thinking deeply...</THINK>Result here.", "Result here."},
+		{"Multiline and whitespace", "<think>\nLine 1\nLine 2\n</think>\n\nCode:\n```go\nfmt.Println()\n```", "Code:\n```go\nfmt.Println()\n```"},
+		{"Unclosed tag at end", "Some text <think>Unfinished thoughts", "Some text"},
+		{"Multiple think blocks", "<think>One</think> Part 1 <think>Two</think> Part 2", "Part 1  Part 2"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StripThinkingTags(tc.input)
+			if got != tc.expected {
+				t.Errorf("StripThinkingTags(%q) = %q; want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+

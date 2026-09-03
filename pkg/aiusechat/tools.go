@@ -17,6 +17,7 @@ import (
 	"github.com/gulindev/gulin/pkg/util/utilfn"
 	"github.com/gulindev/gulin/pkg/gulinbase"
 	"github.com/gulindev/gulin/pkg/gulinobj"
+	"github.com/gulindev/gulin/pkg/wshrpc"
 	"github.com/gulindev/gulin/pkg/wstore"
 )
 
@@ -157,7 +158,7 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 			blocks = append(blocks, block)
 		}
 	}
-	tabState := GenerateCurrentTabStatePrompt(blocks, widgetAccess)
+	tabState := GenerateCurrentTabStatePrompt(ctx, tabid, blocks, widgetAccess)
 	// for debugging
 	// log.Printf("TABPROMPT %s\n", tabState)
 	var tools []uctypes.ToolDefinition
@@ -217,8 +218,12 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 		if viewTypes["term"] {
 			tools = append(tools, GetTermGetScrollbackToolDefinition(tabid))
 			if !strings.HasSuffix(chatOpts.Config.AIMode, "@plan") {
+				// PRIMARY: Run and wait for output
+				tools = append(tools, GetTermRunAndWaitToolDefinition(tabid))
+				// DAEMON / BACKGROUND ONLY
 				tools = append(tools, GetTermRunCommandToolDefinition(tabid))
-				// tools = append(tools, GetTermRunAndWaitToolDefinition(tabid)) // Removed as per user request
+				// CONTROL SIGNALS (Ctrl+C, Ctrl+Z, Ctrl+D, Escape)
+				tools = append(tools, GetTermSendSignalToolDefinition(tabid))
 			}
 			tools = append(tools, GetTermSearchToolDefinition(tabid))
 			tools = append(tools, GetTermCommandOutputToolDefinition(tabid))
@@ -230,21 +235,8 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 			tools = append(tools, GetWebTypeToolDefinition(tabid))
 		}
 
-		// --- CARGA DINÁMICA DE PLUGINS ---
-		dynamicTools, err := LoadPlugins(ctx, tabid)
-		if err == nil && len(dynamicTools) > 0 {
-			tools = append(tools, dynamicTools...)
-		}
-		// ---------------------------------
-
-		// --- CARGA DE TOOLS MCP ---
-		mcpTools, err := mcp.GetMCPTools(ctx, tabid)
-		if err == nil && len(mcpTools) > 0 {
-			tools = append(tools, mcpTools...)
-		}
-		// --------------------------
-
-		// Herramientas de Gestión de Plugins
+		// Herramientas de Gestión y Ejecución de Plugins On-Demand
+		tools = append(tools, GetPluginRunToolDefinition(tabid))
 		tools = append(tools, GetPluginSaveToolDefinition())
 		tools = append(tools, GetPluginListToolDefinition())
 		tools = append(tools, GetPluginDeleteToolDefinition())
@@ -264,7 +256,7 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 	return tabState, tools, nil
 }
 
-func GenerateCurrentTabStatePrompt(blocks []*gulinobj.Block, widgetAccess bool) string {
+func GenerateCurrentTabStatePrompt(ctx context.Context, tabid string, blocks []*gulinobj.Block, widgetAccess bool) string {
 	if !widgetAccess {
 		return `<current_tab_state>The user has chosen not to share widget context with you</current_tab_state>`
 	}
@@ -276,6 +268,14 @@ func GenerateCurrentTabStatePrompt(blocks []*gulinobj.Block, widgetAccess bool) 
 		}
 		blockIdPrefix := block.OID[:8]
 		fullDesc := fmt.Sprintf("(%s) %s", blockIdPrefix, desc)
+
+		// Inyectar buffer visual/scrollback en tiempo real para terminales activas (acotado para cuidar tokens)
+		if block.Meta != nil && block.Meta["view"] == "term" && tabid != "" {
+			if termOutput, err := getTermScrollbackOutput(ctx, tabid, blockIdPrefix, wshrpc.CommandTermGetScrollbackLinesData{LastCommand: true}); err == nil && termOutput != nil && strings.TrimSpace(termOutput.Content) != "" {
+				fullDesc += fmt.Sprintf("\n  [Terminal Screen Content (last lines)]:\n```\n%s\n```", strings.TrimSpace(termOutput.Content))
+			}
+		}
+
 		widgetDescriptions = append(widgetDescriptions, fullDesc)
 	}
 

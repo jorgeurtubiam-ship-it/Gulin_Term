@@ -45,7 +45,7 @@ export const VoiceIndicator: React.FC = memo(() => {
                 <div className="flex items-center gap-2 overflow-hidden">
                     <i className="fa-solid fa-circle-notch fa-spin shrink-0 text-teal-400" />
                     <span className="font-medium truncate">
-                        {interimTranscript || "Transcribiendo con Google..."}
+                        {interimTranscript || "Procesando voz..."}
                     </span>
                 </div>
             </div>

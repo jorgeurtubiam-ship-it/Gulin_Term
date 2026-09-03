@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,17 @@ import (
 	"github.com/gulindev/gulin/pkg/wcore"
 	"github.com/gulindev/gulin/pkg/web/sse"
 )
+
+var thinkingTagsRegex = regexp.MustCompile(`(?is)<(?:think|thought)>[\s\S]*?(?:<\/(?:think|thought)>|$)`)
+
+// StripThinkingTags removes <think>...</think> and <thought>...</thought> blocks from text.
+func StripThinkingTags(text string) string {
+	if text == "" {
+		return ""
+	}
+	cleaned := thinkingTagsRegex.ReplaceAllString(text, "")
+	return strings.TrimSpace(cleaned)
+}
 
 // ExtractXmlAttribute extracts an attribute value from an XML-like tag.
 // Expects double-quoted strings where internal quotes are encoded as &quot;.

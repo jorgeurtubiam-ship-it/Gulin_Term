@@ -54,7 +54,7 @@ var Experts = map[AgentExpertType]AgentExpert{
 		ID:               Expert_Command,
 		Name:             "Administrador de Sistemas",
 		SystemPromptFunc: GetSystemPrompt_CommandExpert,
-		Tools:            []string{"term_run_command", "term_command_output", "term_get_scrollback", "term_search", "apimanager_list", "apimanager_call", "apimanager_register", "apimanager_delete", "brain_register_node", "brain_connect_nodes"},
+		Tools:            []string{"term_run_command", "term_send_signal", "term_command_output", "term_get_scrollback", "term_search", "apimanager_list", "apimanager_call", "apimanager_register", "apimanager_delete", "brain_register_node", "brain_connect_nodes"},
 		DefaultModel:     "gemini-3.1-flash-lite", // Los comandos iniciales ahora son de Nivel 1 (Ahorro)
 	},
 }

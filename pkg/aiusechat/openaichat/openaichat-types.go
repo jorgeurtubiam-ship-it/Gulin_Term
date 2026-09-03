@@ -12,10 +12,15 @@ import (
 
 // OpenAI Chat Completions API types (simplified)
 
+type ChatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
+}
+
 type ChatRequest struct {
 	Model               string               `json:"model"`
 	Messages            []ChatRequestMessage `json:"messages"`
 	Stream              bool                 `json:"stream"`
+	StreamOptions       *ChatStreamOptions   `json:"stream_options,omitempty"`
 	MaxTokens           int                  `json:"max_tokens,omitempty"`            // legacy
 	MaxCompletionTokens int                  `json:"max_completion_tokens,omitempty"` // newer
 	Temperature         float64              `json:"temperature,omitempty"`

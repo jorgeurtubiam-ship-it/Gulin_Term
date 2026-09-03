@@ -48,8 +48,8 @@ export const isTTSEnabledAtom = atom(
     }
 );
 
-// Modelo de Google para procesamiento de voz (gemini-3.1-flash-lite)
-const savedGoogleModel = typeof window !== "undefined" ? localStorage.getItem("gulin_voice_google_model") || "gemini-3.1-flash-lite" : "gemini-3.1-flash-lite";
+// Modelo de Google para procesamiento de voz (gemini-2.5-flash)
+const savedGoogleModel = typeof window !== "undefined" ? localStorage.getItem("gulin_voice_google_model") || "gemini-2.5-flash" : "gemini-2.5-flash";
 const baseGoogleAudioModelAtom = atom<string>(savedGoogleModel);
 
 export const googleAudioModelAtom = atom(

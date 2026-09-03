@@ -58,6 +58,34 @@ func CancelActiveChat(chatId string) {
 	}
 }
 
+type CancelChatRequest struct {
+	ChatID string `json:"chatid"`
+}
+
+func GulinAICancelChatHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req CancelChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.ChatID == "" {
+		http.Error(w, "chatid is required in request body", http.StatusBadRequest)
+		return
+	}
+
+	CancelActiveChat(req.ChatID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapability bool, widgetAccess bool, aiMode string) []string {
 	if isBuilder {
 		return []string{}
@@ -67,7 +95,7 @@ func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapab
 	useNoToolsPrompt := !hasToolsCapability || !widgetAccess
 
 	modelLower := strings.ToLower(model)
-	isLiteModel := strings.Contains(modelLower, "lite") || strings.Contains(modelLower, "flash") || strings.Contains(modelLower, "mini")
+	isLiteModel := (strings.Contains(modelLower, "lite") || strings.Contains(modelLower, "flash") || (strings.Contains(modelLower, "mini") && !strings.Contains(modelLower, "minimax")))
 
 	// Verificar si es un modo de Agente Experto específico
 	for expertID, expert := range Experts {
@@ -99,8 +127,8 @@ func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapab
 
 finalize:
 	// Los modelos Lite (Gemini Flash, GPT-4o-mini) en el Bridge se confunden con el Strict AddOn.
-	// Solo lo usaremos para modelos locales conocidos por ser difíciles.
-	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
+	// Solo lo usaremos para modelos locales o proveedores que requieran ejecución estricta.
+	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek|minimax)\b`, modelLower)
 	if needsStrictToolAddOn && !useNoToolsPrompt {
 		prompts = append(prompts, GetSystemPromptText_StrictToolAddOn())
 	}
@@ -369,8 +397,8 @@ func processAllToolCalls(ctx context.Context, backend UseChatBackend, stopReason
 
 	var toolResults []uctypes.AIToolResult
 	for _, toolCall := range stopReason.ToolCalls {
-		if sseHandler.Err() != nil {
-			log.Printf("AI tool processing stopped: %v\n", sseHandler.Err())
+		if sseHandler.Err() != nil || ctx.Err() != nil {
+			log.Printf("AI tool processing stopped (sseErr=%v, ctxErr=%v)\n", sseHandler.Err(), ctx.Err())
 			break
 		}
 		result := processToolCall(ctx, backend, toolCall, chatOpts, sseHandler, metrics, expertID)
@@ -478,6 +506,10 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 	
 	originalSystemPrompt := chatOpts.SystemPrompt
 	for {
+		if ctx.Err() != nil {
+			log.Printf("RunAIChat: context cancelled for chat %s\n", chatOpts.ChatId)
+			break
+		}
 		// RESTORE original tools/prompt before each step so experts work correctly
 		chatOpts.Tools = originalTools
 		chatOpts.SystemPrompt = originalSystemPrompt
@@ -628,6 +660,11 @@ func ResolveToolCall(ctx context.Context, toolDef *uctypes.ToolDefinition, toolC
 	result = uctypes.AIToolResult{
 		ToolName:  toolCall.Name,
 		ToolUseID: toolCall.ID,
+	}
+
+	if ctx.Err() != nil {
+		result.ErrorText = "context cancelled by user"
+		return
 	}
 
 	defer func() {
@@ -1307,38 +1344,12 @@ func GulinAIDBQueryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GulinAIDBListHandler(w http.ResponseWriter, r *http.Request) {
-	connections := make(map[string]DBRegisterInput)
-
-	// Read ONLY from db-connections.json
-	configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "db-connections.json")
-	fileData, err := os.ReadFile(configPath)
-	if err == nil {
-		fileConns := make(map[string]DBRegisterInput)
-		if err := json.Unmarshal(fileData, &fileConns); err == nil {
-			for k, v := range fileConns {
-				connections[k] = v
-			}
-		}
-	}
+	connections, _ := loadDBConnections()
 
 	if len(connections) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]any{})
 		return
-	}
-
-	// Merge secure URLs from secretstore so the UI can display them for editing
-	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
-	if exists && val != "" {
-		secureConns := make(map[string]string)
-		if err := json.Unmarshal([]byte(val), &secureConns); err == nil {
-			for k, url := range secureConns {
-				if conn, ok := connections[k]; ok {
-					conn.URL = url
-					connections[k] = conn
-				}
-			}
-		}
 	}
 
 	var result []DBConnectionInfo
@@ -1846,6 +1857,10 @@ func runExpertSubChat(ctx context.Context, backend UseChatBackend, chatOpts ucty
 	var cont *uctypes.GulinContinueResponse
 
 	for {
+		if ctx.Err() != nil {
+			resultText = "Tarea cancelada por el usuario."
+			break
+		}
 		subSSEHandler := sse.MakeSilentSSEHandlerCh(ctx)
 		stopReason, nativeMsgs, rateLimitInfo, err := backend.RunChatStep(ctx, subSSEHandler, expertOpts, cont)
 		updateRateLimit(rateLimitInfo)
@@ -1856,6 +1871,11 @@ func runExpertSubChat(ctx context.Context, backend UseChatBackend, chatOpts ucty
 			metrics.Usage.InputTokens += usage.InputTokens
 			metrics.Usage.OutputTokens += usage.OutputTokens
 			metrics.Usage.NativeWebSearchCount += usage.NativeWebSearchCount
+		}
+
+		if ctx.Err() != nil {
+			resultText = "Tarea cancelada por el usuario."
+			break
 		}
 
 		if err != nil {
@@ -1880,6 +1900,10 @@ func runExpertSubChat(ctx context.Context, backend UseChatBackend, chatOpts ucty
 
 		// Si el experto decidió usar herramientas, procesarlas iterativamente
 		if stopReason != nil && stopReason.Kind == uctypes.StopKindToolUse {
+			if ctx.Err() != nil {
+				resultText = "Tarea cancelada por el usuario."
+				break
+			}
 			var toolNames []string
 			for _, tc := range stopReason.ToolCalls {
 				toolNames = append(toolNames, tc.Name)
@@ -1890,6 +1914,10 @@ func runExpertSubChat(ctx context.Context, backend UseChatBackend, chatOpts ucty
 			})
 			metrics.ToolUseCount += len(stopReason.ToolCalls)
 			processAllToolCalls(ctx, backend, stopReason, expertOpts, sseHandler, metrics, expertID)
+			if ctx.Err() != nil {
+				resultText = "Tarea cancelada por el usuario."
+				break
+			}
 			cont = &uctypes.GulinContinueResponse{
 				Model:            expertOpts.Config.Model,
 				ContinueFromKind: uctypes.StopKindToolUse,

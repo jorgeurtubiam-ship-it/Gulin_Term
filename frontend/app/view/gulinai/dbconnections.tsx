@@ -422,7 +422,7 @@ class DBConnectionsViewModel implements ViewModel {
             // Open result as block
             createBlock({
                 meta: {
-                    view: "gulin-ai",
+                    view: "gulinai",
                     "ai:prompt": `Explica esta consulta:\n\n${sql}`,
                     "ai:response": data.explanation || data.text || JSON.stringify(data),
                     "ai:context": "sql-explain"
@@ -433,7 +433,7 @@ class DBConnectionsViewModel implements ViewModel {
             // Fallback: open Gulin AI with the query as context
             createBlock({
                 meta: {
-                    view: "gulin-ai",
+                    view: "gulinai",
                     "ai:preset": "sql-expert",
                     "ai:prompt": `Analiza y optimiza esta consulta SQL:\n\n${sql}\n\nExplica qué hace, posibles problemas de rendimiento y sugerencias de optimización.`
                 }

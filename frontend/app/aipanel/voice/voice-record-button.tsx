@@ -31,21 +31,19 @@ export const VoiceRecordButton: React.FC<VoiceRecordButtonProps> = memo(({ onSpe
     };
 
     const handleStart = useCallback(async () => {
-        if (disabled || isRecording) return;
+        if (isRecording) return;
+        voiceService.stopSpeaking();
         await voiceService.startRecording((transcript) => {
             if (transcript) {
                 onSpeechSubmit(transcript);
             }
         });
-    }, [disabled, isRecording, onSpeechSubmit, voiceService]);
+    }, [isRecording, onSpeechSubmit, voiceService]);
 
     const handleStopAndSend = useCallback(async () => {
         if (!isRecording) return;
-        const text = await voiceService.stopAndSubmit();
-        if (text) {
-            onSpeechSubmit(text);
-        }
-    }, [isRecording, onSpeechSubmit, voiceService]);
+        await voiceService.stopAndSubmit();
+    }, [isRecording, voiceService]);
 
     const handleCancel = useCallback(() => {
         voiceService.cancelRecording();
@@ -81,6 +79,9 @@ export const VoiceRecordButton: React.FC<VoiceRecordButtonProps> = memo(({ onSpe
     const handleClick = (e: React.MouseEvent) => {
         if (disabled) return;
         if (!isHoldingRef.current) {
+            if (voiceState === "speaking") {
+                voiceService.stopSpeaking();
+            }
             if (isRecording) {
                 handleStopAndSend();
             } else {

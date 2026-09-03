@@ -298,18 +298,24 @@ export const AIModeDropdown = memo(({ compatibilityMode = false, tokenCount = 0,
                     <div className="flex gap-1">
                         <div
                             className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-green-400 bg-green-400/10 border border-green-400/20 rounded cursor-default min-w-[60px]"
-                            title="Tokens en el chat actual"
+                            title="Tokens del último mensaje (Entrada + Salida)"
                         >
-                            <i className="fa fa-calculator text-[10px]"></i>
+                            <i className="fa fa-bolt text-[10px]"></i>
                             <span className="text-[11px] font-mono">{tokenCount.toLocaleString()}</span>
                         </div>
-                        <div
-                            className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-blue-400 bg-blue-400/10 border border-blue-400/20 rounded cursor-default min-w-[80px]"
-                            title="Tokens históricos totales consumidos en todas las sesiones"
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (window.confirm("¿Deseas reiniciar el contador acumulado de tokens a 0?")) {
+                                    onResetGlobalTokens?.();
+                                }
+                            }}
+                            className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-blue-400 bg-blue-400/10 hover:bg-blue-400/20 border border-blue-400/20 hover:border-blue-400/40 rounded transition-colors cursor-pointer min-w-[80px]"
+                            title="Tokens acumulados en total (haz clic para reiniciar a 0)"
                         >
                             <i className="fa fa-globe text-[10px]"></i>
                             <span className="text-[11px] font-mono">{globalTokens.toLocaleString()}</span>
-                        </div>
+                        </button>
                     </div>
                 </div>
             </div>

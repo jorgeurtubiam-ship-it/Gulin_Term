@@ -59,17 +59,104 @@ func GetPluginSaveToolDefinition() uctypes.ToolDefinition {
 	}
 }
 
+func GetPluginRunToolDefinition(tabid string) uctypes.ToolDefinition {
+	return uctypes.ToolDefinition{
+		Name:        "plugin_run",
+		DisplayName: "Run Plugin",
+		Description: "Executes a custom user plugin from ~/Gulin_Workspace/plugins by name or filename (e.g. 'aws_inventory' or 'aws_inventory.js').",
+		ToolLogName: "plugin:run",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"plugin_name": map[string]any{
+					"type":        "string",
+					"description": "Name or filename of the plugin to execute (e.g. 'aws_inventory', 'o365_ahorro_inactivos', 'oracle19c_install_ol9', 'top_queries_monitor')",
+				},
+				"params": map[string]any{
+					"type":        "object",
+					"description": "Parameters to pass to the plugin execute function as key-value object (optional)",
+				},
+			},
+			"required":             []string{"plugin_name"},
+			"additionalProperties": false,
+		},
+		ToolAnyCallback: func(ctx context.Context, input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
+			m, ok := input.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("invalid input format")
+			}
+			pluginName, _ := m["plugin_name"].(string)
+			pluginName = strings.TrimSpace(pluginName)
+			if pluginName == "" {
+				return nil, fmt.Errorf("plugin_name is required")
+			}
+
+			params := m["params"]
+			if params == nil {
+				params = make(map[string]any)
+			}
+
+			pluginsDir := gulinbase.GetConfiguredPluginsDir()
+			files, err := os.ReadDir(pluginsDir)
+			if err != nil {
+				return nil, fmt.Errorf("plugins directory not accessible: %w", err)
+			}
+
+			var targetPath string
+			var targetContent string
+			for _, file := range files {
+				if !file.IsDir() && strings.HasSuffix(file.Name(), ".js") {
+					path := filepath.Join(pluginsDir, file.Name())
+					contentBytes, readErr := os.ReadFile(path)
+					if readErr != nil {
+						continue
+					}
+					contentStr := string(contentBytes)
+					meta := extractMetadata(contentStr)
+
+					cleanFile := strings.TrimSuffix(file.Name(), ".js")
+					if strings.EqualFold(file.Name(), pluginName) ||
+						strings.EqualFold(cleanFile, pluginName) ||
+						strings.EqualFold(meta.Name, pluginName) {
+						targetPath = path
+						targetContent = contentStr
+						break
+					}
+				}
+			}
+
+			if targetPath == "" {
+				return nil, fmt.Errorf("plugin '%s' not found in %s. Use plugin_list to see available plugins", pluginName, pluginsDir)
+			}
+
+			return executePlugin(ctx, targetContent, params, tabid)
+		},
+	}
+}
+
 func GetPluginListToolDefinition() uctypes.ToolDefinition {
 	return uctypes.ToolDefinition{
 		Name:        "plugin_list",
 		DisplayName: "List Plugins",
-		Description: "Lists all currently saved dynamic plugins and their code so you can read them before modifying them.",
+		Description: "Lists all available plugins in ~/Gulin_Workspace/plugins with their metadata and parameters, ready to be executed with plugin_run.",
 		ToolLogName: "plugin:list",
 		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]any{},
+			"properties": map[string]any{
+				"include_code": map[string]any{
+					"type":        "boolean",
+					"description": "If true, includes full source code of each plugin. Default is false.",
+				},
+			},
 		},
 		ToolAnyCallback: func(ctx context.Context, input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
+			includeCode := false
+			if m, ok := input.(map[string]any); ok {
+				if ic, ok := m["include_code"].(bool); ok {
+					includeCode = ic
+				}
+			}
+
 			pluginsDir := gulinbase.GetConfiguredPluginsDir()
 			files, err := os.ReadDir(pluginsDir)
 			if err != nil {
@@ -77,23 +164,43 @@ func GetPluginListToolDefinition() uctypes.ToolDefinition {
 			}
 
 			var sb strings.Builder
+			count := 0
 			for _, f := range files {
 				if !f.IsDir() && strings.HasSuffix(f.Name(), ".js") {
 					path := filepath.Join(pluginsDir, f.Name())
 					codeBytes, err := ioutil.ReadFile(path)
 					if err == nil {
-						sb.WriteString(fmt.Sprintf("--- Plugin: %s ---\n", f.Name()))
-						sb.WriteString(string(codeBytes))
-						sb.WriteString("\n\n")
+						count++
+						contentStr := string(codeBytes)
+						meta := extractMetadata(contentStr)
+						name := meta.Name
+						if name == "" {
+							name = strings.TrimSuffix(f.Name(), ".js")
+						}
+						sb.WriteString(fmt.Sprintf("### Plugin: %s (file: %s)\n", name, f.Name()))
+						if meta.Description != "" {
+							sb.WriteString(fmt.Sprintf("- **Description:** %s\n", meta.Description))
+						}
+						if len(meta.Params) > 0 {
+							sb.WriteString("- **Parameters:**\n")
+							for _, p := range meta.Params {
+								sb.WriteString(fmt.Sprintf("  * `%s` (%s): %s\n", p.Name, p.Type, p.Description))
+							}
+						}
+						if includeCode {
+							sb.WriteString("\n```javascript\n")
+							sb.WriteString(contentStr)
+							sb.WriteString("\n```\n")
+						}
+						sb.WriteString("\n")
 					}
 				}
 			}
 
-			res := sb.String()
-			if res == "" {
-				return "No plugins found.", nil
+			if count == 0 {
+				return fmt.Sprintf("No plugins found in %s.", pluginsDir), nil
 			}
-			return res, nil
+			return sb.String(), nil
 		},
 	}
 }

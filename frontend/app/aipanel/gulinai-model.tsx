@@ -32,6 +32,8 @@ import {
     validateFileSizeFromInfo,
 } from "./ai-utils";
 import type { AIPanelInputRef } from "./aipanelinput";
+import { lastQueryWasVoiceAtom } from "./voice/voice-atoms";
+import { VoiceService } from "./voice/voice-service";
 
 export interface DroppedFile {
     id: string;
@@ -566,9 +568,24 @@ export class GulinAIModel {
 
     async stopResponse() {
         this.useChatStop?.();
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        VoiceService.getInstance().stopSpeaking();
+        globalStore.set(this.isAIStreaming, false);
 
         const chatIdValue = globalStore.get(this.chatId);
+        if (chatIdValue) {
+            try {
+                await fetch(`${getWebServerEndpoint()}/api/cancel-chat`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ chatid: chatIdValue }),
+                });
+            } catch (error) {
+                console.error("Failed to call cancel-chat:", error);
+            }
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
         if (!chatIdValue) {
             return;
         }
@@ -748,13 +765,17 @@ export class GulinAIModel {
 
         if (
             (!input.trim() && droppedFiles.length === 0) ||
-            (this.useChatStatus !== "ready" && this.useChatStatus !== "error") ||
             globalStore.get(this.isLoadingChatAtom)
         ) {
             return;
         }
 
+        if (this.useChatStatus !== "ready" && this.useChatStatus !== "error") {
+            this.stopResponse();
+        }
+
         this.clearError();
+        VoiceService.getInstance().stopSpeaking();
 
         const aiMessageParts: AIMessagePart[] = [];
         const uiMessageParts: GulinUIMessagePart[] = [];
@@ -828,6 +849,11 @@ export class GulinAIModel {
 
     async submitVoiceMessage(text: string) {
         if (!text || !text.trim()) return;
+        VoiceService.getInstance().stopSpeaking();
+        if (this.useChatStatus !== "ready" && this.useChatStatus !== "error") {
+            this.stopResponse();
+        }
+        globalStore.set(lastQueryWasVoiceAtom, true);
         globalStore.set(this.inputAtom, text.trim());
         await this.handleSubmit();
     }

@@ -3,14 +3,18 @@
 
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { atoms, getApi, globalStore, WOS } from "@/store/global";
-import { atom, useAtom } from "jotai";
+import { atom, useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import clsx from "clsx";
 
-class OracleMonitorViewModel {
+class OracleMonitorViewModel implements ViewModel {
+    viewType: string = "oracle-monitor";
     blockId: string;
     blockAtom: any;
+    viewIcon = atom<string>("chart-area");
+    viewName = atom<string>("Oracle Monitor");
+    viewText = atom<string>("Oracle Monitor");
     metricsAtom = atom<any>(null);
     loadingAtom = atom<boolean>(true);
     errorAtom = atom<string | null>(null);
@@ -22,25 +26,34 @@ class OracleMonitorViewModel {
         this.refreshMetrics();
     }
 
-    async refreshMetrics() {
-        globalStore.set(this.loadingAtom, true);
+    async refreshMetrics(overrideConn?: string) {
+        globalStore.set(this.loadingAtom as any, true);
         try {
-            const block = globalStore.get(this.blockAtom);
-            this.connectionName = block?.meta?.connection || "";
+            const block = globalStore.get(this.blockAtom as any);
+            const conn = overrideConn || block?.meta?.connection || this.connectionName || "";
+            this.connectionName = conn;
+
+            if (!this.connectionName) {
+                globalStore.set(this.loadingAtom as any, false);
+                return;
+            }
 
             const endpoint = getWebServerEndpoint();
             const headers = { "X-AuthKey": getApi().getAuthKey() };
             const resp = await fetch(`${endpoint}/gulin/db-metrics?connection=${encodeURIComponent(this.connectionName)}`, { headers });
             
-            if (!resp.ok) throw new Error("Error al obtener metricas");
+            if (!resp.ok) {
+                const errText = await resp.text().catch(() => "Error al obtener metricas");
+                throw new Error(errText || "Error al obtener metricas");
+            }
 
             const data = await resp.json();
-            globalStore.set(this.metricsAtom, data);
-            globalStore.set(this.errorAtom, null);
+            globalStore.set(this.metricsAtom as any, data);
+            globalStore.set(this.errorAtom as any, null);
         } catch (e: any) {
-            globalStore.set(this.errorAtom, e.message);
+            globalStore.set(this.errorAtom as any, e.message);
         } finally {
-            globalStore.set(this.loadingAtom, false);
+            globalStore.set(this.loadingAtom as any, false);
         }
     }
 
@@ -50,20 +63,50 @@ class OracleMonitorViewModel {
 }
 
 function OracleMonitorView({ model }: { model: OracleMonitorViewModel }) {
-    const [metrics] = useAtom(model.metricsAtom);
-    const [loading] = useAtom(model.loadingAtom);
-    const [error] = useAtom(model.errorAtom);
+    const blockData = useAtomValue(model.blockAtom) as Block;
+    const metrics = useAtomValue(model.metricsAtom);
+    const loading = useAtomValue(model.loadingAtom);
+    const error = useAtomValue(model.errorAtom);
     const [activeTab, setActiveTab] = useState("Overview");
+
+    const connName = (blockData?.meta?.connection as string) || model.connectionName;
+
+    useEffect(() => {
+        if (connName && connName !== model.connectionName) {
+            model.refreshMetrics(connName);
+        }
+    }, [connName, model]);
 
     useEffect(() => {
         const interval = setInterval(() => {
-            model.refreshMetrics();
+            if (model.connectionName || connName) {
+                model.refreshMetrics(connName);
+            }
         }, 15000); // 15 seconds for heavy queries
         return () => clearInterval(interval);
-    }, [model]);
+    }, [model, connName]);
 
     if (!metrics && loading) {
         return <LoadingOverlay />;
+    }
+
+    if (!metrics && error) {
+        return (
+            <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-[#020617] text-slate-400 p-6 text-center">
+                <i className="fa fa-exclamation-triangle text-amber-500 text-3xl"></i>
+                <div className="space-y-1 max-w-md">
+                    <p className="text-sm font-bold text-white uppercase tracking-wider">No se pudieron cargar las métricas</p>
+                    <p className="text-xs text-slate-400 font-mono">{error}</p>
+                    {connName && <p className="text-[10px] text-emerald-400 font-mono mt-2">Conexión: {connName}</p>}
+                </div>
+                <button
+                    onClick={() => model.refreshMetrics(connName)}
+                    className="mt-2 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded text-xs font-bold uppercase tracking-widest border border-slate-700 hover:border-emerald-500/40 transition-all flex items-center gap-2"
+                >
+                    <i className="fa fa-refresh"></i> Reintentar
+                </button>
+            </div>
+        );
     }
 
     const tabs = [];

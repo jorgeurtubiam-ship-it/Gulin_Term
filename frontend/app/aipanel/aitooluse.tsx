@@ -98,18 +98,22 @@ const AIToolApprovalButtons = memo(({ count, onApprove, onDeny }: AIToolApproval
     const denyText = count > 1 ? t("gulin.ai.tool.deny_all") : t("gulin.ai.tool.deny");
 
     return (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex items-center gap-2">
             <button
+                type="button"
                 onClick={onApprove}
-                className="px-3 py-1 border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white text-sm rounded cursor-pointer transition-colors"
+                className="px-3 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 hover:text-white border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
             >
-                {approveText}
+                <i className="fa-solid fa-check text-xs" />
+                <span>{approveText}</span>
             </button>
             <button
+                type="button"
                 onClick={onDeny}
-                className="px-3 py-1 border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white text-sm rounded cursor-pointer transition-colors"
+                className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 text-red-300 hover:text-white border border-red-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
             >
-                {denyText}
+                <i className="fa-solid fa-xmark text-xs" />
+                <span>{denyText}</span>
             </button>
         </div>
     );
@@ -447,7 +451,8 @@ interface AITerminalToolGroupCardProps {
     reasoning?: string;
 }
 
-const AITerminalToolGroupCard = memo(({ parts, reasoning: reasoningProp }: AITerminalToolGroupCardProps) => {
+const AITerminalToolGroupCard = memo(({ parts, isStreaming, reasoning: reasoningProp }: AITerminalToolGroupCardProps) => {
+    const [userApprovalOverride, setUserApprovalOverride] = useState<string | null>(null);
     const [showReasoningModal, setShowReasoningModal] = useState(false);
     if (!Array.isArray(parts) || parts.length === 0) return null;
 
@@ -455,6 +460,29 @@ const AITerminalToolGroupCard = memo(({ parts, reasoning: reasoningProp }: AITer
     const commandPart = parts.find((p) => p?.data?.toolname === "term_run_command") ?? parts[0];
     if (!commandPart?.data) return null;
     const toolData = commandPart.data;
+
+    const approvalParts = parts.filter(p => p?.data?.approval === "needs-approval" && p?.data?.status !== "completed" && p?.data?.status !== "error");
+    const needsApprove = approvalParts.length > 0;
+    const baseApproval = userApprovalOverride || (needsApprove ? "needs-approval" : undefined);
+    const effectiveApproval = baseApproval ? getEffectiveApprovalStatus(baseApproval, isStreaming) : undefined;
+
+    const handleApprove = () => {
+        setUserApprovalOverride("user-approved");
+        parts.forEach((p) => {
+            if (p.data?.toolcallid && p.data?.approval === "needs-approval") {
+                GulinAIModel.getInstance().toolUseSendApproval(p.data.toolcallid, "user-approved");
+            }
+        });
+    };
+
+    const handleDeny = () => {
+        setUserApprovalOverride("user-denied");
+        parts.forEach((p) => {
+            if (p.data?.toolcallid && p.data?.approval === "needs-approval") {
+                GulinAIModel.getInstance().toolUseSendApproval(p.data.toolcallid, "user-denied");
+            }
+        });
+    };
 
     // Overall status: error if any errored, completed if all done, else pending
     const hasError = parts.some((p) => p?.data?.status === "error");
@@ -512,6 +540,11 @@ const AITerminalToolGroupCard = memo(({ parts, reasoning: reasoningProp }: AITer
             {parts.some((p) => p?.data?.errormessage) && (
                 <div className="text-sm text-red-300 pl-6">
                     {parts.find((p) => p?.data?.errormessage)?.data?.errormessage}
+                </div>
+            )}
+            {effectiveApproval === "needs-approval" && (
+                <div className="pl-6 pt-1">
+                    <AIToolApprovalButtons count={approvalParts.length} onApprove={handleApprove} onDeny={handleDeny} />
                 </div>
             )}
             </div>

@@ -141,7 +141,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
                 {displayMessages.map((message, index) => {
                     const isStreamingDummy = message.id === "last-message";
                     const isStreaming =
-                        status === "streaming" &&
+                        (status === "streaming" || status === "submitted") &&
                         (isStreamingDummy || (index === displayMessages.length - 1 && message.role === "assistant"));
 
                     return (

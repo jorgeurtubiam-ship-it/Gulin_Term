@@ -9,6 +9,7 @@ import Editor from "@monaco-editor/react";
 import { GlobalModel } from "@/app/store/global-model";
 import { renderMiniTable, TableDetailView } from "./dbconn-table";
 import { exportToXLSX, exportToCSV, exportToPDF, copyAsMarkdown } from "./dbconn-export";
+import { createBlock } from "@/store/global";
 import type { DBConnectionsViewModel } from "./dbconnections";
 
 // #6: Query History Panel
@@ -441,7 +442,32 @@ export function DBConnectionsView({ model }: { model: DBConnectionsViewModel }) 
                                         </button>
                                     </div>
                                     <button 
-                                        onClick={() => createBlock({ meta: { view: "oracle-monitor", connection: selectedConn } })}
+                                        onClick={() => {
+                                            if (!selectedConn) return;
+                                            const activeDb = dbs.find(d => d.name === selectedConn);
+                                            const t = (activeDb?.type || "").toLowerCase();
+                                            let monitorView = "oracle-monitor";
+                                            if (t.includes("postgres")) monitorView = "postgres-monitor";
+                                            else if (t.includes("mysql") || t.includes("mariadb")) monitorView = "mysql-monitor";
+                                            else if (t.includes("sqlserver") || t.includes("mssql")) monitorView = "sqlserver-monitor";
+                                            else if (t.includes("sqlite")) monitorView = "sqlite-monitor";
+                                            else if (t.includes("mongodb") || t.includes("mongo")) monitorView = "mongodb-monitor";
+                                            else if (t.includes("redis")) monitorView = "redis-monitor";
+                                            else if (t.includes("cassandra")) monitorView = "cassandra-monitor";
+                                            else if (t.includes("couchbase")) monitorView = "couchbase-monitor";
+                                            else if (t.includes("dameng") || t.includes("dm")) monitorView = "dameng-monitor";
+                                            else if (t.includes("db2")) monitorView = "db2-monitor";
+                                            else if (t.includes("hadoop")) monitorView = "hadoop-monitor";
+                                            else if (t.includes("hbase")) monitorView = "hbase-monitor";
+                                            else if (t.includes("hazelcast")) monitorView = "hazelcast-monitor";
+                                            else if (t.includes("informix")) monitorView = "informix-monitor";
+                                            else if (t.includes("maxdb")) monitorView = "maxdb-monitor";
+                                            else if (t.includes("memcached")) monitorView = "memcached-monitor";
+                                            else if (t.includes("neo4j")) monitorView = "neo4j-monitor";
+                                            else if (t.includes("hana")) monitorView = "saphana-monitor";
+                                            else if (t.includes("sybase")) monitorView = "sybase-monitor";
+                                            createBlock({ meta: { view: monitorView, connection: selectedConn } });
+                                        }}
                                         className="bg-zinc-800/80 hover:bg-emerald-500/20 text-emerald-400 px-4 py-1 rounded-md text-[11px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-emerald-500/20 hover:border-emerald-500/40"
                                     >
                                         <i className="fa fa-chart-line text-[9px]"></i>

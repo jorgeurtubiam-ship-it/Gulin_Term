@@ -549,9 +549,9 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                     />
                     <VoiceRecordButton
                         onSpeechSubmit={handleVoiceSubmit}
-                        disabled={status === "streaming"}
+                        disabled={status === "streaming" || status === "submitted"}
                     />
-                    {status === "streaming" ? (
+                    {status === "streaming" || status === "submitted" ? (
                         <button
                             type="button"
                             onClick={() => model.stopResponse()}
@@ -563,7 +563,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                     ) : (
                         <button
                             type="submit"
-                            disabled={status === "streaming"}
+                            disabled={status === "streaming" || status === "submitted"}
                             className={cn(
                                 "w-8 h-8 shrink-0 rounded-lg flex items-center justify-center transition-all cursor-pointer shadow-sm mb-0.5",
                                 input.trim()

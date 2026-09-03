@@ -205,9 +205,15 @@ func ConvertAIMessageToGeminiChatMessage(aiMsg uctypes.AIMessage) (*GeminiChatMe
 			if part.Text == "" {
 				return nil, fmt.Errorf("part %d: text type requires non-empty text field", i)
 			}
-			parts = append(parts, GeminiMessagePart{
-				Text: part.Text,
-			})
+			text := part.Text
+			if aiMsg.Role == "assistant" || aiMsg.Role == "model" {
+				text = aiutil.StripThinkingTags(text)
+			}
+			if text != "" {
+				parts = append(parts, GeminiMessagePart{
+					Text: text,
+				})
+			}
 
 		case uctypes.AIMessagePartTypeFile:
 			geminiPart, err := convertFileAIMessagePart(part)

@@ -73,7 +73,10 @@ contextBridge.exposeInMainWorld("api", {
     saveTextFile: (fileName: string, content: string) => ipcRenderer.invoke("save-text-file", fileName, content),
     readTextFile: (filePath: string) => ipcRenderer.invoke("read-text-file", filePath),
     writeTextFile: (filePath: string, content: string) => ipcRenderer.invoke("write-text-file", filePath, content),
-    fetchApi: (url: string, options: any) => ipcRenderer.invoke("fetch-api", url, options),
+    voiceTranscribeLocal: (audioBase64: string, mimeType: string) =>
+        ipcRenderer.invoke("gulin-voice-transcribe-local", { audioBase64, mimeType }),
+    nativeSpeak: (text: string) => ipcRenderer.invoke("gulin-native-tts-say", text),
+    nativeStopSpeak: () => ipcRenderer.invoke("gulin-native-tts-stop"),
 });
 
 // Custom event for "new-window"

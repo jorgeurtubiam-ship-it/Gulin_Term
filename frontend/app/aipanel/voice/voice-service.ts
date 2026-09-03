@@ -105,7 +105,7 @@ export class VoiceService {
         if (!this.isRecording) return "";
 
         globalStore.set(voiceStateAtom, "processing");
-        globalStore.set(interimTranscriptAtom, "Transcribiendo con Google...");
+        globalStore.set(interimTranscriptAtom, "Transcribiendo en tu Mac...");
         globalStore.set(lastQueryWasVoiceAtom, true);
 
         this.playTone(880, 0.08, "sine");
@@ -137,77 +137,141 @@ export class VoiceService {
 
         if (recordedBlob && recordedBlob.size > 200) {
             try {
-                const base64Audio = await this.blobToBase64(recordedBlob);
-                const googleModel = globalStore.get(googleAudioModelAtom) || "gemini-3.1-flash-lite";
-
-                // Extraer apiKey de Google desde aiModeConfigs
                 const aiConfigs = globalStore.get(GulinAIModel.getInstance().aiModeConfigs) || {};
-                let foundApiKey = "";
+
+                // 1. Transcribir con Whisper (OpenAI)
+                let openAiKey = "";
                 for (const [k, v] of Object.entries(aiConfigs)) {
-                    if ((v as any)["ai:provider"] === "google" || k.includes("gemini")) {
+                    if ((v as any)["ai:provider"] === "openai" || k.includes("openai")) {
                         if ((v as any)["ai:apitoken"]) {
-                            foundApiKey = (v as any)["ai:apitoken"];
+                            openAiKey = (v as any)["ai:apitoken"];
                             break;
                         }
                     }
                 }
 
-                if (!foundApiKey) {
-                    foundApiKey = "AIzaSyAVdLm2MSjJjvyuisFa3O4oS0u0Zoyxd-U";
+                if (openAiKey) {
+                    globalStore.set(interimTranscriptAtom, "Transcribiendo con Whisper...");
+                    try {
+                        const formData = new FormData();
+                        const isWebm = recordedBlob.type?.includes("webm") || !recordedBlob.type?.includes("mp4");
+                        const ext = isWebm ? "webm" : "mp4";
+                        const mime = isWebm ? "audio/webm" : "audio/mp4";
+                        const cleanBlob = new Blob(this.audioChunks, { type: mime });
+                        formData.append("file", cleanBlob, `audio.${ext}`);
+                        formData.append("model", "whisper-1");
+                        formData.append("language", "es");
+
+                        const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+                            method: "POST",
+                            headers: {
+                                Authorization: `Bearer ${openAiKey}`,
+                            },
+                            body: formData,
+                        });
+
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data && data.text) {
+                                finalResult = data.text.trim();
+                            }
+                        } else {
+                            const err = await resp.text();
+                            console.warn("Whisper OpenAI STT status:", resp.status, err);
+                        }
+                    } catch (err) {
+                        console.warn("Error conectando con Whisper:", err);
+                    }
                 }
 
-                // Llamada directa a Google Gemini desde Electron Renderer
-                const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${googleModel}:generateContent`;
-                const payload = {
-                    contents: [
-                        {
-                            parts: [
-                                {
-                                    inlineData: {
-                                        mimeType: recordedBlob.type || "audio/webm",
-                                        data: base64Audio,
-                                    },
-                                },
-                                {
-                                    text: "Transcribe this audio in its original language. Return ONLY the plain transcription text without commentary, quotes or formatting.",
-                                },
-                            ],
-                        },
-                    ],
-                };
+                // 2. Fallback a Google Gemini si no hay resultado
+                if (!finalResult) {
+                    let foundApiKey = "";
+                    let selectedGoogleModel = globalStore.get(googleAudioModelAtom) || "gemini-2.5-flash";
 
-                const response = await fetch(endpoint, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": foundApiKey,
-                    },
-                    body: JSON.stringify(payload),
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-                        finalResult = data.candidates[0].content.parts[0].text.trim();
+                    for (const [k, v] of Object.entries(aiConfigs)) {
+                        if ((v as any)["ai:provider"] === "google" || k.includes("gemini")) {
+                            if ((v as any)["ai:apitoken"]) {
+                                foundApiKey = (v as any)["ai:apitoken"];
+                            }
+                            if ((v as any)["ai:model"]) {
+                                selectedGoogleModel = (v as any)["ai:model"];
+                            }
+                            break;
+                        }
                     }
-                } else {
-                    const errText = await response.text();
-                    console.warn(`Error en Google Gemini Voice HTTP ${response.status}:`, errText);
+
+                    if (foundApiKey) {
+                        const base64Audio = await this.blobToBase64(recordedBlob);
+                        const modelsToTry = [
+                            selectedGoogleModel || "gemini-2.5-flash",
+                            "gemini-2.5-flash",
+                            "gemini-1.5-flash",
+                        ];
+                        const uniqueModels = Array.from(new Set(modelsToTry));
+
+                        for (const modelToUse of uniqueModels) {
+                            try {
+                                globalStore.set(interimTranscriptAtom, `Procesando con ${modelToUse}...`);
+                                const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent`;
+                                const payload = {
+                                    contents: [
+                                        {
+                                            parts: [
+                                                {
+                                                    inlineData: {
+                                                        mimeType: recordedBlob.type || "audio/webm",
+                                                        data: base64Audio,
+                                                    },
+                                                },
+                                                {
+                                                    text: "Transcribe this audio verbatim in its original language. Output ONLY the plain transcription text without commentary, markdown, or quotation marks.",
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                };
+
+                                const requestHeaders: Record<string, string> = {
+                                    "Content-Type": "application/json",
+                                };
+                                if (foundApiKey.startsWith("AQ.") || foundApiKey.startsWith("ya29.")) {
+                                    requestHeaders["Authorization"] = `Bearer ${foundApiKey}`;
+                                    requestHeaders["x-goog-api-key"] = foundApiKey;
+                                } else {
+                                    requestHeaders["x-goog-api-key"] = foundApiKey;
+                                }
+
+                                const response = await fetch(endpoint, {
+                                    method: "POST",
+                                    headers: requestHeaders,
+                                    body: JSON.stringify(payload),
+                                });
+
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                                        finalResult = data.candidates[0].content.parts[0].text.trim();
+                                        break;
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn(`Error probando modelo ${modelToUse}:`, e);
+                            }
+                        }
+                    }
                 }
             } catch (err) {
-                console.warn("Error en transcripción de Google Gemini:", err);
+                console.warn("Error en transcripción de voz:", err);
             }
         }
 
         globalStore.set(interimTranscriptAtom, "");
         globalStore.set(finalTranscriptAtom, finalResult);
+        globalStore.set(voiceStateAtom, "idle");
 
         if (this.onTranscriptReadyCallback && finalResult) {
             this.onTranscriptReadyCallback(finalResult);
-        }
-
-        if (!finalResult) {
-            globalStore.set(voiceStateAtom, "idle");
         }
 
         return finalResult;
@@ -247,8 +311,8 @@ export class VoiceService {
             this.audioContext = null;
         }
 
-        this.analyser = null;
         this.mediaRecorder = null;
+        this.analyser = null;
     }
 
     private startAudioMeter() {
@@ -274,63 +338,218 @@ export class VoiceService {
         this.animationFrameId = requestAnimationFrame(updateMeter);
     }
 
-    public speakResponse(text: string) {
-        if (typeof window === "undefined" || !window.speechSynthesis) return;
+    private currentUtterance: SpeechSynthesisUtterance | null = null;
+    private currentAudio: HTMLAudioElement | null = null;
 
-        const isTTSEnabled = globalStore.get(isTTSEnabledAtom);
-        if (!isTTSEnabled) return;
+    public async speakResponse(text: string) {
+        if (typeof window === "undefined") return;
 
         this.stopSpeaking();
 
         const cleanText = this.cleanMarkdownForSpeech(text);
         if (!cleanText || cleanText.trim().length === 0) return;
 
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        const config = globalStore.get(voiceConfigAtom);
+        globalStore.set(voiceStateAtom, "speaking");
 
-        utterance.lang = config.lang || "es-ES";
-        utterance.rate = config.rate || 1.05;
-        utterance.pitch = config.pitch || 1.0;
-        utterance.volume = 1.0;
-
-        const voices = window.speechSynthesis.getVoices();
-        const spanishVoices = voices.filter((v) => v.lang.startsWith("es"));
-        const preferredVoice =
-            spanishVoices.find((v) => v.name.includes("Mónica") || v.name.includes("Jorge") || v.name.includes("Natural") || v.name.includes("Google")) ||
-            spanishVoices[0];
-
-        if (preferredVoice) {
-            utterance.voice = preferredVoice;
+        const aiConfigs = globalStore.get(GulinAIModel.getInstance().aiModeConfigs) || {};
+        let miniMaxKey = "";
+        let openAiKey = "";
+        for (const [k, v] of Object.entries(aiConfigs)) {
+            const val = v as any;
+            const provider = (val["ai:provider"] || "").toLowerCase();
+            const apitoken = val["ai:apitoken"] || "";
+            if (provider.includes("minimax") || k.toLowerCase().includes("minimax")) {
+                if (apitoken) miniMaxKey = apitoken;
+            }
+            if (provider.includes("openai") || k.toLowerCase().includes("openai")) {
+                if (apitoken) openAiKey = apitoken;
+            }
         }
 
-        utterance.onstart = () => {
-            globalStore.set(voiceStateAtom, "speaking");
-        };
+        // 1. MiniMax Speech T2A (speech-01-turbo) - Voz ultra realista en tu plan
+        if (miniMaxKey) {
+            try {
+                const resp = await fetch("https://api.minimax.io/v1/t2a_v2", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${miniMaxKey}`,
+                    },
+                    body: JSON.stringify({
+                        model: "speech-01-turbo",
+                        text: cleanText,
+                        stream: false,
+                        voice_setting: {
+                            voice_id: "male-qn-qingse",
+                            speed: 1.0,
+                            vol: 1.0,
+                            pitch: 0,
+                        },
+                        audio_setting: {
+                            sample_rate: 32000,
+                            bitrate: 128000,
+                            format: "mp3",
+                            channel: 1,
+                        },
+                    }),
+                });
 
-        utterance.onend = () => {
-            globalStore.set(voiceStateAtom, "idle");
-        };
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data?.data?.audio) {
+                        const hex = data.data.audio;
+                        const bytes = new Uint8Array(hex.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16)));
+                        const blob = new Blob([bytes], { type: "audio/mp3" });
+                        const audioUrl = URL.createObjectURL(blob);
+                        const audio = new Audio(audioUrl);
+                        this.currentAudio = audio;
 
-        utterance.onerror = () => {
-            globalStore.set(voiceStateAtom, "idle");
-        };
+                        audio.onplay = () => {
+                            globalStore.set(voiceStateAtom, "speaking");
+                        };
 
-        window.speechSynthesis.speak(utterance);
-    }
+                        audio.onended = () => {
+                            this.currentAudio = null;
+                            globalStore.set(voiceStateAtom, "idle");
+                            URL.revokeObjectURL(audioUrl);
+                        };
 
-    public stopSpeaking() {
-        if (typeof window !== "undefined" && window.speechSynthesis) {
-            window.speechSynthesis.cancel();
+                        audio.onerror = (e) => {
+                            console.warn("Error reproduciendo audio MiniMax T2A:", e);
+                            this.currentAudio = null;
+                            globalStore.set(voiceStateAtom, "idle");
+                        };
+
+                        await audio.play();
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn("MiniMax T2A error:", err);
+            }
+        }
+
+        // 2. Fallback a OpenAI TTS (tts-1)
+        if (openAiKey) {
+            try {
+                const resp = await fetch("https://api.openai.com/v1/audio/speech", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${openAiKey}`,
+                    },
+                    body: JSON.stringify({
+                        model: "tts-1",
+                        input: cleanText,
+                        voice: "nova",
+                    }),
+                });
+
+                if (resp.ok) {
+                    const blob = await resp.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    const audio = new Audio(audioUrl);
+                    this.currentAudio = audio;
+
+                    audio.onplay = () => {
+                        globalStore.set(voiceStateAtom, "speaking");
+                    };
+
+                    audio.onended = () => {
+                        this.currentAudio = null;
+                        globalStore.set(voiceStateAtom, "idle");
+                        URL.revokeObjectURL(audioUrl);
+                    };
+
+                    audio.onerror = (e) => {
+                        console.warn("Error reproduciendo audio TTS:", e);
+                        this.currentAudio = null;
+                        globalStore.set(voiceStateAtom, "idle");
+                    };
+
+                    await audio.play();
+                    return;
+                }
+            } catch (err) {
+                console.warn("OpenAI TTS error:", err);
+            }
+        }
+
+        // 2. Fallback a voz nativa de macOS
+        const api = (window as any).api;
+        if (api && typeof api.nativeSpeak === "function") {
+            try {
+                await api.nativeSpeak(cleanText);
+                globalStore.set(voiceStateAtom, "idle");
+                return;
+            } catch (e) {
+                console.warn("Native speak fallback:", e);
+            }
+        }
+
+        // 3. Fallback a SpeechSynthesis del navegador
+        if (window.speechSynthesis) {
+            try {
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
+            } catch (e) {}
+
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            this.currentUtterance = utterance;
+            utterance.lang = "es-ES";
+            utterance.rate = 1.05;
+            utterance.onend = () => {
+                this.currentUtterance = null;
+                globalStore.set(voiceStateAtom, "idle");
+            };
+            utterance.onerror = () => {
+                this.currentUtterance = null;
+                globalStore.set(voiceStateAtom, "idle");
+            };
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // Timeout de seguridad para resetear voiceState si por cualquier motivo el audio termina silenciosamente
+        setTimeout(() => {
             if (globalStore.get(voiceStateAtom) === "speaking") {
                 globalStore.set(voiceStateAtom, "idle");
             }
+        }, 12000);
+    }
+
+    public stopSpeaking() {
+        if (this.currentAudio) {
+            try {
+                this.currentAudio.pause();
+                this.currentAudio.currentTime = 0;
+            } catch (e) {}
+            this.currentAudio = null;
         }
+
+        const api = (window as any).api;
+        if (api && typeof api.nativeStopSpeak === "function") {
+            try {
+                api.nativeStopSpeak();
+            } catch (e) {}
+        }
+
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+            try {
+                window.speechSynthesis.cancel();
+            } catch (e) {}
+            this.currentUtterance = null;
+        }
+
+        globalStore.set(voiceStateAtom, "idle");
     }
 
     private cleanMarkdownForSpeech(md: string): string {
         if (!md) return "";
 
-        let text = md.replace(/```[\s\S]*?```/g, " [Código generado en pantalla] ");
+        // Remover bloques de razonamiento/pensamiento interno
+        let text = md.replace(/<(?:think|thought)>[\s\S]*?(?:<\/(?:think|thought)>|$)/gi, "");
+        text = text.replace(/```[\s\S]*?```/g, " [Código generado en pantalla] ");
         text = text.replace(/`([^`]+)`/g, "$1");
         text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
         text = text.replace(/#{1,6}\s+/g, "");

@@ -615,7 +615,7 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		} else if exitCode != 0 {
 			msg = fmt.Sprintf("%s (exit code %d)", baseMsg, exitCode)
 		}
-		bc.writeMutedMessageToTerminal("[" + msg + "]")
+		bc.writeMutedMessageToTerminal("[" + msg + " - Presiona Enter para reiniciar]\r\n")
 		go checkCloseOnExit(bc.BlockId, exitCode)
 	}()
 	return nil

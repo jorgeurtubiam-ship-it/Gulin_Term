@@ -29,8 +29,7 @@ import { AIHistorySidebar } from "./aihistorysidebar";
 import { BYOKAnnouncement } from "./byokannouncement";
 import { TelemetryRequiredMessage } from "./telemetryrequired";
 import { GulinAIModel } from "./gulinai-model";
-import { DebugLogWidget } from "./debuglogwidget";
-import { lastQueryWasVoiceAtom } from "./voice/voice-atoms";
+import { isTTSEnabledAtom, lastQueryWasVoiceAtom } from "./voice/voice-atoms";
 import { VoiceService } from "./voice/voice-service";
 
 const AIBlockMask = memo(() => {
@@ -270,7 +269,15 @@ const AIPanelComponentInner = memo(() => {
         transport: new DefaultChatTransport({
             api: model.getUseChatEndpointUrl(),
             prepareSendMessagesRequest: (opts) => {
-                const msg = model.getAndClearMessage();
+                let msg = model.getAndClearMessage();
+                if (!msg || !(msg as any).messageid) {
+                    const textInput = (opts as any)?.messages?.[(opts as any)?.messages?.length - 1]?.content || "";
+                    msg = {
+                        messageid: crypto.randomUUID(),
+                        role: "user",
+                        parts: [{ type: "text", text: typeof textInput === "string" ? textInput : "Hola" } as any],
+                    } as any;
+                }
                 const body: any = {
                     msg,
                     chatid: globalStore.get(model.chatId),
@@ -315,7 +322,9 @@ const AIPanelComponentInner = memo(() => {
         },
         onFinish: (options: any) => {
             const wasVoice = globalStore.get(lastQueryWasVoiceAtom);
-            if (wasVoice) {
+            const isTTS = globalStore.get(isTTSEnabledAtom);
+            // Modo Inteligente: solo reproduce voz automáticamente si la pregunta se hizo por voz y el audio no está silenciado
+            if (wasVoice && isTTS) {
                 const msg = options?.message || options;
                 let textContent = "";
                 if (typeof msg?.content === "string") {
@@ -326,11 +335,26 @@ const AIPanelComponentInner = memo(() => {
                         .map((p: any) => p.text)
                         .join(" ");
                 }
+
+                if (!textContent && Array.isArray(messages) && messages.length > 0) {
+                    const lastMsg: any = messages[messages.length - 1];
+                    if (lastMsg && (lastMsg.role === "assistant" || lastMsg.role === "system")) {
+                        if (typeof lastMsg.content === "string") {
+                            textContent = lastMsg.content;
+                        } else if (Array.isArray(lastMsg.parts)) {
+                            textContent = lastMsg.parts
+                                .filter((p: any) => p?.type === "text" && p?.text)
+                                .map((p: any) => p.text)
+                                .join(" ");
+                        }
+                    }
+                }
+
                 if (textContent) {
                     VoiceService.getInstance().speakResponse(textContent);
                 }
-                globalStore.set(lastQueryWasVoiceAtom, false);
             }
+            globalStore.set(lastQueryWasVoiceAtom, false);
         },
         onError: (error) => {
             model.setError(error.message || "An error occurred");
@@ -385,8 +409,8 @@ const AIPanelComponentInner = memo(() => {
     };
 
     useEffect(() => {
-        globalStore.set(model.isAIStreaming, status == "streaming");
-        if (status === "ready") {
+        globalStore.set(model.isAIStreaming, status === "streaming" || status === "submitted");
+        if (status === "ready" || status === "error") {
             // Optional: could clear some temporary data here
         }
     }, [status]);

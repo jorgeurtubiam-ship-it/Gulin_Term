@@ -160,7 +160,7 @@ func (b *plaiBackend) RunChatStep(
 	
 	// Añadir solo Dashboard y Terminal de las herramientas base
 	for _, t := range baseTools {
-		if t.Name == "term_create_dashboard" || t.Name == "term_run_command" {
+		if t.Name == "term_create_dashboard" || t.Name == "term_run_command" || t.Name == "term_send_signal" || t.Name == "term_run_and_wait" {
 			toolsToUse = append(toolsToUse, t)
 		}
 	}
@@ -176,7 +176,7 @@ func (b *plaiBackend) RunChatStep(
 		toolsSection.WriteString("4. ESTRATEGIA PARA GRANDES VOLÚMENES (BIG DATA): Antes de leer el contenido de cualquier tabla, el agente debe ejecutar una consulta 'SELECT COUNT(*)' para conocer el volumen total (el resultado estará en el campo 'EXPR$0'). Posteriormente, debe extraer los datos en bloques pequeños usando siempre 'LIMIT 10 OFFSET X'. El agente debe informar al usuario en todo momento de la 'marca de agua' o 'OFFSET' actual para que el usuario sepa por dónde va la extracción.\n")
 		toolsSection.WriteString("5. MANEJO DE ERRORES: Si una herramienta de API o un comando de terminal falla, el agente no debe rendirse ni pedir permiso. Debe analizar el mensaje de error técnico, corregir el comando o la consulta SQL, y reintentar la acción en el siguiente paso de forma autónoma.\n")
 		toolsSection.WriteString("6. HONESTIDAD Y VERACIDAD: Bajo ninguna circunstancia el agente debe inventar datos, nombres de hosts o valores de ejemplo. Si una consulta no devuelve resultados o Dremio falla, el agente debe informar del error real al usuario. Está PROHIBIDO generar Dashboards con datos falsos o de prueba si la fuente real ha fallado.\n")
-		toolsSection.WriteString("7. LECTURA DE TERMINAL: Si envías un comando con `term_run_command`, DEBES esperar pacientemente a que termine. Si usas `term_command_output` y el sistema te responde 'Shell integration is not enabled', ESTÁS OBLIGADO a usar la herramienta `term_get_scrollback` en tu siguiente paso para leer la pantalla de la terminal. NO alucines que un comando falló si no tienes la salida.\n")
+		toolsSection.WriteString("7. LECTURA Y CONTROL DE TERMINAL: Si envías un comando con `term_run_command`, DEBES esperar pacientemente a que termine. Si un comando se queda atascado, en bucle o esperando input interactivo, USA `term_send_signal` con `signal: \"ctrl+c\"` para detenerlo o `signal: \"ctrl+z\"` para suspenderlo. Si usas `term_command_output` y el sistema te responde 'Shell integration is not enabled', ESTÁS OBLIGADO a usar la herramienta `term_get_scrollback` en tu siguiente paso para leer la pantalla de la terminal. NO alucines que un comando falló si no tienes la salida.\n")
 
 		toolsSection.WriteString("### INSTRUCCIONES DE HERRAMIENTAS:\n")
 		toolsSection.WriteString("1. Para ejecutar una herramienta, DEBES usar un bloque ```json con esta estructura exacta:\n")
@@ -190,7 +190,7 @@ func (b *plaiBackend) RunChatStep(
 			toolsSection.WriteString(fmt.Sprintf("Descripción: %s\n", tool.Description))
 			
 			// Si es una herramienta vital, incluimos el esquema directamente para evitar llamadas extra a get_tool_schema
-			if strings.HasPrefix(tool.Name, "apimanager_") || tool.Name == "term_run_command" {
+			if strings.HasPrefix(tool.Name, "apimanager_") || tool.Name == "term_run_command" || tool.Name == "term_send_signal" || tool.Name == "term_run_and_wait" {
 				schemaBytes, _ := json.Marshal(tool.InputSchema)
 				toolsSection.WriteString(fmt.Sprintf("Esquema JSON: %s\n", string(schemaBytes)))
 			}

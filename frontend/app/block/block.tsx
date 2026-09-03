@@ -82,6 +82,7 @@ BlockRegistry.set("term", TermViewModel);
 BlockRegistry.set("preview", PreviewModel);
 BlockRegistry.set("web", WebViewModel);
 BlockRegistry.set("gulinai", GulinAiModel);
+BlockRegistry.set("gulin-ai", GulinAiModel);
 BlockRegistry.set("cpuplot", SysinfoViewModel);
 BlockRegistry.set("sysinfo", SysinfoViewModel);
 BlockRegistry.set("vdom", VDomModel);

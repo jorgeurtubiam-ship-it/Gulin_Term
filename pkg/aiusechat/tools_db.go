@@ -98,24 +98,31 @@ func loadDBConnections() (map[string]DBRegisterInput, error) {
 		if err := json.Unmarshal(fileData, &raw); err == nil {
 			for k, v := range raw {
 				typeStr, _ := v["type"].(string)
+				urlStr, _ := v["url"].(string)
+				if urlStr == "" {
+					urlStr, _ = v["dsn"].(string)
+				}
 				connections[k] = DBRegisterInput{
 					Name: k,
 					Type: typeStr,
+					URL:  urlStr,
 				}
 			}
 		}
 	}
 
-	// Read secure URLs from secretstore
+	// Read secure URLs from secretstore (SecretStore overrides / supplements JSON)
 	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
 	if exists && val != "" {
 		secureConns := make(map[string]string) // Name -> URL
-		json.Unmarshal([]byte(val), &secureConns)
-		for name, secureURL := range secureConns {
-			// If it exists in JSON, inject the URL
-			if conn, ok := connections[name]; ok {
-				conn.URL = secureURL
-				connections[name] = conn
+		if err := json.Unmarshal([]byte(val), &secureConns); err == nil {
+			for name, secureURL := range secureConns {
+				if conn, ok := connections[name]; ok {
+					if secureURL != "" {
+						conn.URL = secureURL
+						connections[name] = conn
+					}
+				}
 			}
 		}
 	}
@@ -125,47 +132,35 @@ func loadDBConnections() (map[string]DBRegisterInput, error) {
 
 func saveDBConnections(connections map[string]DBRegisterInput) error {
 	configPath := filepath.Join(gulinbase.GetGulinConfigDir(), "db-connections.json")
-	fileData, err := os.ReadFile(configPath)
-	
-	// Prepare metadata for JSON
-	var raw map[string]map[string]interface{}
-	if err == nil {
-		json.Unmarshal(fileData, &raw)
-	}
-	if raw == nil {
-		raw = make(map[string]map[string]interface{})
-	}
 
-	// Prepare secure data for SecretStore
+	// Rebuild clean metadata map from current connections ONLY
+	raw := make(map[string]map[string]interface{})
 	secureConns := make(map[string]string)
-	val, exists, _ := secretstore.GetSecret(DBConnectionsSecretKey)
-	if exists && val != "" {
-		json.Unmarshal([]byte(val), &secureConns)
-	}
 
 	for k, v := range connections {
-		// Update Metadata in JSON (Never save URL/DSN here)
-		if raw[k] == nil {
-			raw[k] = make(map[string]interface{})
+		raw[k] = map[string]interface{}{
+			"type":   v.Type,
+			"status": "registered",
 		}
-		raw[k]["type"] = v.Type
-		raw[k]["status"] = "registered"
-		
-		// Remove leaked passwords if they existed
-		delete(raw[k], "dsn")
-		delete(raw[k], "url")
-		delete(raw[k], "password")
-
-		// Save securely
-		secureConns[k] = v.URL
+		if v.URL != "" {
+			secureConns[k] = v.URL
+		}
 	}
 
 	// Save JSON file
-	newVal, _ := json.MarshalIndent(raw, "", "  ")
-	os.WriteFile(configPath, newVal, 0644)
+	newVal, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(configPath, newVal, 0644); err != nil {
+		return err
+	}
 
-	// Save SecretStore
-	secureVal, _ := json.Marshal(secureConns)
+	// Save SecretStore with only active connections
+	secureVal, err := json.Marshal(secureConns)
+	if err != nil {
+		return err
+	}
 	return secretstore.SetSecret(DBConnectionsSecretKey, string(secureVal))
 }
 

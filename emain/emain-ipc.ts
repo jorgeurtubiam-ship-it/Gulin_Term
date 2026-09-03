@@ -532,4 +532,100 @@ export function initIpcHandlers() {
             return { error: err.message };
         }
     });
+
+    electron.ipcMain.handle(
+        "gulin-voice-transcribe-local",
+        async (event, { audioBase64, mimeType }: { audioBase64: string; mimeType: string }) => {
+            try {
+                if (!audioBase64) {
+                    return { success: false, error: "No se recibió audio" };
+                }
+
+                const ext = mimeType?.includes("wav") ? "wav" : mimeType?.includes("mp4") ? "mp4" : "webm";
+                const tempFilePath = path.join(electron.app.getPath("temp"), `gulin_speech_${Date.now()}.${ext}`);
+                const buffer = Buffer.from(audioBase64, "base64");
+                await fs.promises.writeFile(tempFilePath, buffer);
+
+                const possibleBinPaths = [
+                    path.resolve(__dirname, "../../bin/gulin-transcribe"),
+                    path.resolve(process.cwd(), "bin/gulin-transcribe"),
+                    "/Users/lordzero1/IA_LoRdZeRo/Gulin_Agent/gulin-term/bin/gulin-transcribe",
+                ];
+
+                const binPath = possibleBinPaths.find((p) => fs.existsSync(p));
+                if (!binPath) {
+                    return { success: false, error: "Binario gulin-transcribe no encontrado en tu Mac" };
+                }
+
+                return new Promise((resolve) => {
+                    child_process.execFile(binPath, [tempFilePath], { timeout: 8000 }, (error, stdout, stderr) => {
+                        try {
+                            fs.unlinkSync(tempFilePath);
+                        } catch (e) {}
+
+                        if (error) {
+                            return resolve({ success: false, error: error.message || stderr });
+                        }
+
+                        try {
+                            const parsed = JSON.parse(stdout.trim());
+                            return resolve(parsed);
+                        } catch (e) {
+                            return resolve({ success: true, transcript: stdout.trim() });
+                        }
+                    });
+                });
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        }
+    );
+
+    let currentSayProcess: child_process.ChildProcess | null = null;
+
+    electron.ipcMain.handle("gulin-native-tts-say", async (event, text: string) => {
+        try {
+            if (!text || !text.trim()) return false;
+
+            if (currentSayProcess) {
+                try {
+                    currentSayProcess.kill();
+                } catch (e) {}
+                currentSayProcess = null;
+            }
+
+            if (process.platform === "darwin") {
+                currentSayProcess = child_process.spawn("/usr/bin/say", [text.trim()], {
+                    stdio: "ignore",
+                });
+                currentSayProcess.on("exit", () => {
+                    currentSayProcess = null;
+                });
+                return true;
+            }
+            return false;
+        } catch (err: any) {
+            console.error("Error en native TTS say:", err);
+            return false;
+        }
+    });
+
+    electron.ipcMain.handle("gulin-native-tts-stop", async () => {
+        try {
+            if (currentSayProcess) {
+                try {
+                    currentSayProcess.kill();
+                } catch (e) {}
+                currentSayProcess = null;
+            }
+            if (process.platform === "darwin") {
+                try {
+                    child_process.exec("killall say");
+                } catch (e) {}
+            }
+            return true;
+        } catch (err: any) {
+            return false;
+        }
+    });
 }
