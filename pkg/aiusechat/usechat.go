@@ -188,6 +188,10 @@ func getGulinAISettings(premium bool, builderMode bool, rtInfo gulinobj.ObjRTInf
 	if thinkingLevel == "" {
 		thinkingLevel = uctypes.ThinkingLevelMedium
 	}
+	// Per-mode override (ai:maxtokens) wins over the global/rtInfo value.
+	if config.MaxTokens > 0 {
+		maxTokens = config.MaxTokens
+	}
 	verbosity := config.Verbosity
 	if verbosity == "" {
 		verbosity = uctypes.VerbosityLevelMedium // default to medium
@@ -197,6 +201,7 @@ func getGulinAISettings(premium bool, builderMode bool, rtInfo gulinobj.ObjRTInf
 		APIType:       config.APIType,
 		Model:         config.Model,
 		MaxTokens:     maxTokens,
+		ContextLimit:  config.ContextLimit,
 		ThinkingLevel: thinkingLevel,
 		Verbosity:     verbosity,
 		AIMode:        aiMode,

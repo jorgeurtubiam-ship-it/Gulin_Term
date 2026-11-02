@@ -205,6 +205,23 @@ type ContentDelta struct {
 	Content   string          `json:"content,omitempty"`
 	Text      string          `json:"text,omitempty"` // Fallback for Bridge/Anthropic/Google
 	ToolCalls []ToolCallDelta `json:"tool_calls,omitempty"`
+
+	// ReasoningContent carries the model's internal reasoning ("thinking").
+	// MiniMax (MiniMax-M3.1-Flash) and DeepSeek-R1 style providers emit it as
+	// `reasoning_content` in the streaming delta. Without this field the whole
+	// reasoning trace is silently dropped by encoding/json.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// Reasoning is an alias used by some gateways for the same payload.
+	Reasoning string `json:"reasoning,omitempty"`
+}
+
+// GetReasoning returns the reasoning trace carried by the delta, checking
+// both the canonical field and the alias used by some gateways.
+func (d ContentDelta) GetReasoning() string {
+	if d.ReasoningContent != "" {
+		return d.ReasoningContent
+	}
+	return d.Reasoning
 }
 
 type ToolCallDelta struct {

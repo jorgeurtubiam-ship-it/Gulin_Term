@@ -227,6 +227,14 @@ func buildChatHTTPRequest(ctx context.Context, messages []ChatRequestMessage, ch
 	if maxTokens <= 0 {
 		maxTokens = OpenAIChatDefaultMaxTokens
 	}
+	// Reasoning models spend part of the completion budget on their internal
+	// reasoning trace before emitting the visible answer. With the flat 4096
+	// default, MiniMax/DeepSeek would burn ~2k tokens on reasoning and get
+	// truncated with finish_reason="length", losing the tail of the answer.
+	if aiutil.IsReasoningModel(opts.Model) && maxTokens < aiutil.ReasoningModelMinMaxTokens {
+		log.Printf("openaichat: raising max_tokens %d -> %d for reasoning model %s\n", maxTokens, aiutil.ReasoningModelMinMaxTokens, opts.Model)
+		maxTokens = aiutil.ReasoningModelMinMaxTokens
+	}
 
 	finalMessages := messages
 	if len(chatOpts.SystemPrompt) > 0 {
@@ -669,7 +677,7 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 			}
 
 			// Tool result messages (role "tool") are not converted to UIMessage
-			if chatMsg.Message.Role == "tool" && chatMsg.Message.ToolCallID != "" {
+			if chatMsg.Message.Role == "tool" {
 				continue
 			}
 
@@ -686,6 +694,11 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 
 			uiChat.Messages = append(uiChat.Messages, uiMsg)
 		} else if aiMsg, ok := genMsg.(*uctypes.AIMessage); ok {
+			// Do not convert tool result messages to UIMessage
+			if aiMsg.Role == "tool" {
+				continue
+			}
+
 			// Fallback for generic AI messages
 			var fallbackParts []uctypes.UIMessagePart
 			for _, part := range aiMsg.Parts {
@@ -711,6 +724,9 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 		} else {
 			genericMsg := uctypes.ConvertToGenericAIMessage(genMsg)
 			if genericMsg != nil {
+				if genericMsg.Role == "tool" {
+					continue
+				}
 				uiChat.Messages = append(uiChat.Messages, uctypes.UIMessage{
 					ID:    genericMsg.MessageId,
 					Role:  genericMsg.Role,

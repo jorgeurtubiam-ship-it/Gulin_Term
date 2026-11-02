@@ -36,6 +36,10 @@ type SearchResult struct {
 	FilePath string
 	Content  string
 	Score    float32
+	// Provider identifies the embedding model that produced the stored
+	// vector. It is filled in by the SQLite backend so callers can tell
+	// which vector space a result belongs to.
+	Provider string
 }
 
 var (

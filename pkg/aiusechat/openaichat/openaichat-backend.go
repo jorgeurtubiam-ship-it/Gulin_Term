@@ -4,6 +4,7 @@
 package openaichat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,10 +22,117 @@ import (
 	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
 	"github.com/gulindev/gulin/pkg/aiusechat/chatstore"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
+	"github.com/gulindev/gulin/pkg/gulinbase"
 	"github.com/gulindev/gulin/pkg/web/sse"
 )
 
+// MaxRequestRetries is the number of extra attempts performed when the
+// provider returns a transient error (5xx or 429).
+const MaxRequestRetries = 2
+
+// doWithRetry performs the HTTP request and retries transient failures with
+// exponential backoff. The request body is re-created for each attempt because
+// http.Request bodies are consumed on the first read.
+//
+// Retryable statuses: 408, 429, 500, 502, 503, 504.
+func doWithRetry(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
+	bodyBytes := []byte(nil)
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to buffer request body: %w", err)
+		}
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= MaxRequestRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 1s, 2s, 4s...
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			log.Printf("openaichat: retrying request (attempt %d/%d) after %s (last error: %v)", attempt+1, MaxRequestRetries+1, backoff, lastErr)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		attemptReq := req.Clone(ctx)
+		if bodyBytes != nil {
+			attemptReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			attemptReq.ContentLength = int64(len(bodyBytes))
+			attemptReq.GetBody = func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+			}
+		}
+
+		resp, err := client.Do(attemptReq)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !isRetryableStatus(resp.StatusCode) {
+			return resp, nil
+		}
+
+		// Drain and close so the connection can be reused.
+		errBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		lastErr = fmt.Errorf("API returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+
+	return nil, fmt.Errorf("request failed after %d attempts: %w", MaxRequestRetries+1, lastErr)
+}
+
+// isRetryableStatus reports whether the status code represents a transient
+// upstream condition worth retrying.
+func isRetryableStatus(code int) bool {
+	switch code {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests,
+		http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 // RunChatStep executes a chat step using the chat completions API
+// formatStreamError renders a provider error payload into a readable message.
+// MiniMax returns {"type":"error","error":{"type":..,"message":..,"code":..,"http_code":..}}
+// which, when printed with %v, shows a raw Go map. This extracts the useful fields.
+func formatStreamError(errPayload interface{}) string {
+	switch e := errPayload.(type) {
+	case string:
+		return e
+	case map[string]interface{}:
+		// Some providers nest the details one level deeper.
+		if inner, ok := e["error"].(map[string]interface{}); ok {
+			return formatStreamError(inner)
+		}
+		msg, _ := e["message"].(string)
+		code, _ := e["code"].(string)
+		etype, _ := e["type"].(string)
+		parts := []string{}
+		if msg != "" {
+			parts = append(parts, msg)
+		}
+		label := code
+		if label == "" {
+			label = etype
+		}
+		if label != "" {
+			parts = append(parts, fmt.Sprintf("(%s)", label))
+		}
+		if len(parts) == 0 {
+			return fmt.Sprintf("%v", e)
+		}
+		return strings.Join(parts, " ")
+	default:
+		return fmt.Sprintf("%v", errPayload)
+	}
+}
 func RunChatStep(
 	ctx context.Context,
 	sseHandler *sse.SSEHandlerCh,
@@ -106,8 +214,11 @@ func RunChatStep(
 	}
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
-	log.Printf("openaichat TRACE 1: client.Do returned err=%v", err)
+
+	// Retry transient upstream failures (5xx / 429). Providers like MiniMax
+	// intermittently return 500 "internal_error" even on valid payloads; without
+	// a retry the whole chat turn dies and the user has to re-send it.
+	resp, err := doWithRetry(ctx, client, req)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -349,9 +460,11 @@ func processChatStream(
 	var textBuilder strings.Builder
 	msgID := uuid.New().String()
 	textID := uuid.New().String()
+	reasoningID := uuid.New().String()
 	var finalUsage *ChatUsage
 	var finishReason string
 	textStarted := false
+	reasoningStarted := false
 	var toolCallsInProgress []ToolCall
 
 	if cont == nil {
@@ -394,20 +507,25 @@ func processChatStream(
 		if data == "[DONE]" {
 			break
 		}
-		// Log every chunk for deep investigation of Bridge/Provider differences
-		log.Printf("openaichat chunk DEBUG: %s", data)
+		// Log every chunk for deep investigation of Bridge/Provider differences.
+		// Gated behind dev mode: this fires once per SSE chunk and was writing
+		// ~5MB per session (200MB+ rotated logs), which is pure noise in prod.
+		if gulinbase.IsDevMode() {
+			log.Printf("openaichat chunk DEBUG: %s", data)
+		}
 
 		// Detect embedded errors in the SSE stream
 		var rawChunk struct {
 			Error interface{} `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(data), &rawChunk); err == nil && rawChunk.Error != nil {
-			_ = sseHandler.AiMsgError(fmt.Sprintf("%v", rawChunk.Error))
+			errText := formatStreamError(rawChunk.Error)
+			_ = sseHandler.AiMsgError(errText)
 			return &uctypes.GulinStopReason{
 				Kind:      uctypes.StopKindError,
 				ErrorType: "stream_api",
-				ErrorText: fmt.Sprintf("%v", rawChunk.Error),
-			}, nil, fmt.Errorf("AI stream error: %v", rawChunk.Error)
+				ErrorText: errText,
+			}, nil, fmt.Errorf("AI stream error: %s", errText)
 		}
 
 		data = strings.TrimSpace(data)
@@ -471,6 +589,19 @@ func processChatStream(
 		if content == "" && delta.Text != "" {
 			content = delta.Text
 		}
+
+		// Reasoning trace: MiniMax/DeepSeek emit it as `reasoning_content` in
+		// the delta. It used to be dropped entirely because ContentDelta had no
+		// such field. Stream it as a separate reasoning block so the UI can show
+		// it (the frontend already renders reasoning parts).
+		if reasoning := delta.GetReasoning(); reasoning != "" {
+			if !reasoningStarted {
+				_ = sseHandler.AiMsgReasoningStart(reasoningID)
+				reasoningStarted = true
+			}
+			_ = sseHandler.AiMsgReasoningDelta(reasoningID, reasoning)
+		}
+
 		if content != "" {
 			if !textStarted {
 				_ = sseHandler.AiMsgTextStart(textID)
@@ -606,13 +737,18 @@ func processChatStream(
 	if textStarted {
 		_ = sseHandler.AiMsgTextEnd(textID)
 	}
+	if reasoningStarted {
+		_ = sseHandler.AiMsgReasoningEnd(reasoningID)
+	}
 	_ = sseHandler.AiMsgFinishStep()
 
-	if textBuilder.Len() > 0 {
-		log.Printf("openaichat: raw response text (len=%d): %q\n", textBuilder.Len(), textBuilder.String())
-	}
-	if len(toolCallsInProgress) > 0 {
-		log.Printf("openaichat: tool calls detected: %d\n", len(toolCallsInProgress))
+	if gulinbase.IsDevMode() {
+		if textBuilder.Len() > 0 {
+			log.Printf("openaichat: raw response text (len=%d): %q\n", textBuilder.Len(), textBuilder.String())
+		}
+		if len(toolCallsInProgress) > 0 {
+			log.Printf("openaichat: tool calls detected: %d\n", len(toolCallsInProgress))
+		}
 	}
 
 	return stopReason, assistantMsg, nil

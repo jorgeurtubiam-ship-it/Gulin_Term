@@ -6,7 +6,6 @@ package chatstore
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -84,52 +83,15 @@ func LoadChatFromDB(chatId string) (*uctypes.AIChat, error) {
 	defer cancel()
 
 	return wstore.WithTxRtn(ctx, func(tx *wstore.TxWrap) (*uctypes.AIChat, error) {
-		// FIX 2026-09-25: NO cargar extra_data en el SELECT inicial.
-		// extra_data contiene el JSON nativo serializado completo (~1.4 MB para chats de 900 msgs).
-		// Solo lo leemos bajo demanda, cuando no hay fallback por content.
+		// Siempre cargamos extra_data para poder deserializar fielmente los mensajes nativos
+		// con sus tool calls, parámetros, imágenes y metadatos completos.
 		var dbMsgs []DBChatMessage
-		query := `SELECT chat_id, message_id, role, content, created_at, api_type, model, pinned, '' as extra_data
+		query := `SELECT chat_id, message_id, role, content, created_at, api_type, model, pinned, extra_data 
 			FROM chat_message WHERE chat_id = ? ORDER BY created_at ASC`
 		tx.Select(&dbMsgs, query, chatId)
 
 		if len(dbMsgs) == 0 {
 			return nil, nil
-		}
-
-		// FIX 2026-09-25: lazy-load de extra_data. Solo consultamos la columna completa
-		// para los mensajes donde realmente la necesitamos (cuando content está vacío o
-		// el mensaje es de tipo nativo con tool calls).
-		needExtraData := make([]int, 0)
-		for i, dbMsg := range dbMsgs {
-			if dbMsg.Content == "" || dbMsg.APIType == "plai-assistant" {
-				needExtraData = append(needExtraData, i)
-			}
-		}
-
-		if len(needExtraData) > 0 {
-			// Carga específica de extra_data solo para los mensajes que lo requieren.
-			// Esto evita leer ~1.4 MB de JSON cuando solo necesitamos unos pocos mensajes.
-			ids := make([]interface{}, len(needExtraData))
-			for j, idx := range needExtraData {
-				ids[j] = dbMsgs[idx].MessageID
-			}
-			placeholders := strings.Repeat("?,", len(ids))
-			placeholders = strings.TrimSuffix(placeholders, ",")
-			var extras []struct {
-				MessageID string `db:"message_id"`
-				ExtraData string `db:"extra_data"`
-			}
-			q := fmt.Sprintf(`SELECT message_id, extra_data FROM chat_message
-				WHERE chat_id = ? AND message_id IN (%s)`, placeholders)
-			args := append([]interface{}{chatId}, ids...)
-			tx.Select(&extras, q, args...)
-			extraMap := make(map[string]string, len(extras))
-			for _, e := range extras {
-				extraMap[e.MessageID] = e.ExtraData
-			}
-			for i := range needExtraData {
-				dbMsgs[needExtraData[i]].ExtraData = extraMap[dbMsgs[needExtraData[i]].MessageID]
-			}
 		}
 
 		chat := &uctypes.AIChat{

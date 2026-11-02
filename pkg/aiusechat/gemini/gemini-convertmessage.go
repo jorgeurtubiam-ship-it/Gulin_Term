@@ -402,6 +402,9 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 		if !ok {
 			genericMsg := uctypes.ConvertToGenericAIMessage(nativeMsg)
 			if genericMsg != nil {
+				if genericMsg.Role == "tool" {
+					continue
+				}
 				uiMessages = append(uiMessages, uctypes.UIMessage{
 					ID:    genericMsg.MessageId,
 					Role:  genericMsg.Role,

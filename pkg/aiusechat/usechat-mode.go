@@ -80,6 +80,9 @@ func resolveAIMode(requestedMode string, premium bool) (string, *wconfig.AIModeC
 }
 
 func applyProviderDefaults(config *wconfig.AIModeConfigType) {
+	if config.ContextLimit <= 0 {
+		config.ContextLimit = inferContextLimit(config.Model)
+	}
 	if config.Provider == uctypes.AIProvider_Gulin {
 		config.GulinAICloud = true
 		if config.Endpoint == "" {
@@ -408,6 +411,63 @@ func broadcastAIModeConfigs(configs map[string]wconfig.AIModeConfigType) {
 		Data:  update,
 	})
 }
+// inferContextLimit returns the context window (in tokens) for a model, based on the
+// model family. It is only used when the mode does not declare ai:contextlimit.
+//
+// The values are conservative: they stay below the real limits of each family so the
+// request never exceeds what the provider accepts.
+func inferContextLimit(model string) int {
+	m := strings.ToLower(model)
+	if m == "" {
+		return 0
+	}
+	switch {
+	// Anthropic
+	case strings.Contains(m, "claude-3-5-sonnet"), strings.Contains(m, "claude-sonnet-4"),
+		strings.Contains(m, "claude-opus-4"), strings.Contains(m, "claude-haiku-4"):
+		return 200000
+	case strings.Contains(m, "claude-3-7"), strings.Contains(m, "claude-3-5-haiku"):
+		return 200000
+	case strings.Contains(m, "claude-3-opus"), strings.Contains(m, "claude-3-sonnet"), strings.Contains(m, "claude-3-haiku"):
+		return 200000
+	case strings.Contains(m, "claude"):
+		return 100000
+
+	// OpenAI
+	case strings.Contains(m, "gpt-4o"), strings.Contains(m, "gpt-4.1"), strings.Contains(m, "gpt-5"), strings.Contains(m, "o3"), strings.Contains(m, "o4-mini"):
+		return 128000
+	case strings.Contains(m, "gpt-4-turbo"), strings.Contains(m, "gpt-4-32k"):
+		return 32000
+	case strings.Contains(m, "gpt-4"):
+		return 8192
+	case strings.Contains(m, "o1"):
+		return 200000
+
+	// Google Gemini
+	case strings.Contains(m, "gemini-1.5-pro"), strings.Contains(m, "gemini-2.5-pro"), strings.Contains(m, "gemini-3"):
+		return 1000000
+	case strings.Contains(m, "gemini-1.5-flash"), strings.Contains(m, "gemini-2.0-flash"), strings.Contains(m, "gemini-2.5-flash"):
+		return 1000000
+	case strings.Contains(m, "gemini"):
+		return 32000
+
+	// Groq / Llama
+	case strings.Contains(m, "llama-3.3"), strings.Contains(m, "llama-3.1"):
+		return 128000
+	case strings.Contains(m, "llama"):
+		return 32000
+
+	// DeepSeek
+	case strings.Contains(m, "deepseek"):
+		return 64000
+
+	// Others
+	case strings.Contains(m, "mistral"), strings.Contains(m, "mixtral"), strings.Contains(m, "qwen"):
+		return 32000
+	}
+	return 0
+}
+
 func getProviderFromModelID(modelID string, originalProvider string) string {
 	m := strings.ToLower(modelID)
 	if strings.HasPrefix(m, "gpt-") || strings.HasPrefix(m, "o1-") || strings.HasPrefix(m, "o3-") || strings.Contains(m, "text-embedding-3") {
@@ -468,7 +528,7 @@ func SyncGulinBridgeModels() error {
 		defer logFile.Close()
 	}
 	logToAll := func(s string) {
-		fmt.Printf(s + "\n")
+		fmt.Println(s)
 		if logFile != nil {
 			logFile.WriteString(time.Now().Format("15:04:05") + " " + s + "\n")
 		}

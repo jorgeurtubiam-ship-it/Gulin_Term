@@ -549,7 +549,10 @@ const getThinkingMessage = (
 };
 
 export const isInternalToolResult = (message: GulinUIMessage): boolean => {
-    if (!message || message.role !== "user") return false;
+    if (!message) return false;
+    const role = (message as any)?.role;
+    if (role === "tool") return true;
+    if (role !== "user" && role !== "assistant") return true;
     const parts = Array.isArray(message.parts) ? message.parts : [];
     if (parts.length === 0) return false;
 
@@ -571,6 +574,7 @@ export const isInternalToolResult = (message: GulinUIMessage): boolean => {
         text.startsWith('{"data":') ||
         text.startsWith('{"message":') ||
         text.startsWith('{"exitcode":') ||
+        text.startsWith('{"exitCode":') ||
         text.startsWith('{"status":') ||
         text.startsWith('{"success":') ||
         text.startsWith('{"result":') ||

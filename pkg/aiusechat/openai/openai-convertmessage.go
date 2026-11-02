@@ -585,6 +585,11 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 				uiMessages = append(uiMessages, *uiMsg)
 			}
 		} else if aiMsg, ok := nativeMsg.(*uctypes.AIMessage); ok {
+			// Do not convert tool result messages to UIMessage
+			if aiMsg.Role == "tool" {
+				continue
+			}
+
 			// Fallback for generic AI messages
 			var fallbackParts []uctypes.UIMessagePart
 			for _, part := range aiMsg.Parts {
@@ -610,6 +615,9 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 		} else {
 			genericMsg := uctypes.ConvertToGenericAIMessage(nativeMsg)
 			if genericMsg != nil {
+				if genericMsg.Role == "tool" {
+					continue
+				}
 				uiMessages = append(uiMessages, uctypes.UIMessage{
 					ID:    genericMsg.MessageId,
 					Role:  genericMsg.Role,

@@ -4,6 +4,7 @@
 package aiusechat
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
+	"github.com/gulindev/gulin/pkg/util/fileutil"
 )
 
 func TestReadDirCallback(t *testing.T) {
@@ -41,7 +43,7 @@ func TestReadDirCallback(t *testing.T) {
 		"path": tmpDir,
 	}
 
-	result, err := readDirCallback(input, &uctypes.UIMessageDataToolUse{})
+	result, err := readDirCallback(context.Background(), input, &uctypes.UIMessageDataToolUse{})
 	if err != nil {
 		t.Fatalf("readDirCallback failed: %v", err)
 	}
@@ -64,16 +66,16 @@ func TestReadDirCallback(t *testing.T) {
 		t.Errorf("Expected 3 entries, got %d", entryCount)
 	}
 
-	entries, ok := resultMap["entries"].([]map[string]any)
+	entries, ok := resultMap["entries"].([]fileutil.DirEntryOut)
 	if !ok {
-		t.Fatalf("entries is not a slice of maps")
+		t.Fatalf("entries is not a slice of fileutil.DirEntryOut")
 	}
 
 	// Check that we have the expected entries
 	foundFiles := 0
 	foundDirs := 0
 	for _, entry := range entries {
-		if entry["is_dir"].(bool) {
+		if entry.Dir {
 			foundDirs++
 		} else {
 			foundFiles++
@@ -102,7 +104,7 @@ func TestReadDirOnFile(t *testing.T) {
 		"path": tmpFile.Name(),
 	}
 
-	_, err = readDirCallback(input, &uctypes.UIMessageDataToolUse{})
+	_, err = readDirCallback(context.Background(), input, &uctypes.UIMessageDataToolUse{})
 	if err == nil {
 		t.Fatalf("Expected error when reading a file with read_dir, got nil")
 	}
@@ -136,7 +138,7 @@ func TestReadDirMaxEntries(t *testing.T) {
 		"max_entries": maxEntries,
 	}
 
-	result, err := readDirCallback(input, &uctypes.UIMessageDataToolUse{})
+	result, err := readDirCallback(context.Background(), input, &uctypes.UIMessageDataToolUse{})
 	if err != nil {
 		t.Fatalf("readDirCallback failed: %v", err)
 	}
@@ -202,18 +204,18 @@ func TestReadDirSortBeforeTruncate(t *testing.T) {
 		"max_entries": maxEntries,
 	}
 
-	result, err := readDirCallback(input, &uctypes.UIMessageDataToolUse{})
+	result, err := readDirCallback(context.Background(), input, &uctypes.UIMessageDataToolUse{})
 	if err != nil {
 		t.Fatalf("readDirCallback failed: %v", err)
 	}
 
 	resultMap := result.(map[string]any)
-	entries := resultMap["entries"].([]map[string]any)
+	entries := resultMap["entries"].([]fileutil.DirEntryOut)
 
 	// Count directories in the result
 	dirCount := 0
 	for _, entry := range entries {
-		if entry["is_dir"].(bool) {
+		if entry.Dir {
 			dirCount++
 		}
 	}
@@ -225,7 +227,7 @@ func TestReadDirSortBeforeTruncate(t *testing.T) {
 
 	// First 3 entries should be directories
 	for i := 0; i < 3; i++ {
-		if !entries[i]["is_dir"].(bool) {
+		if !entries[i].Dir {
 			t.Errorf("Expected entry %d to be a directory, but it was a file", i)
 		}
 	}
