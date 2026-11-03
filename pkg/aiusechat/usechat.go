@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -1606,17 +1607,35 @@ func GulinAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 	sseHandler := sse.MakeSSEHandlerCh(w, r.Context())
 	defer sseHandler.Close()
 
+	// streamStarted indica si un paso ya llamó a SetupSSE (headers 200 enviados).
+	// En ese caso es IMPOSIBLE devolver otro status: escribir con http.Error
+	// provoca 'superfluous response.WriteHeader call' y rompe la conexión SSE.
+	var streamStarted int32
+	markStreamStarted := func() { atomic.StoreInt32(&streamStarted, 1) }
+	handleRunError := func(prefix string, err error) {
+		if atomic.LoadInt32(&streamStarted) == 0 {
+			sseHandler.Close()
+			http.Error(w, fmt.Sprintf("%s: %v", prefix, err), http.StatusInternalServerError)
+			return
+		}
+		// El canal ya está vivo: propagamos el error como evento SSE.
+		_ = sseHandler.WriteError(err.Error())
+	}
+
 	if isInterruption && lastUserMsg != nil {
 		// Restart with merged message
+		markStreamStarted()
 		if err := RunAIChatWrap(r.Context(), sseHandler, chatOpts); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to restart chat: %v", err), http.StatusInternalServerError)
+			log.Printf("%s failed with error: %v", "RunAIChatWrap", err)
+			handleRunError("Failed to restart chat", err)
 			return
 		}
 	} else {
 		// Normal post
+		markStreamStarted()
 		if err := GulinAIPostMessageWrap(r.Context(), sseHandler, &req.Msg, chatOpts); err != nil {
 			log.Printf("GulinAIPostMessageWrap failed with error: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to post message: %v", err), http.StatusInternalServerError)
+			handleRunError("Failed to post message", err)
 			return
 		}
 	}

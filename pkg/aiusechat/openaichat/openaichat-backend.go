@@ -466,6 +466,19 @@ func processChatStream(
 	textStarted := false
 	reasoningStarted := false
 	var toolCallsInProgress []ToolCall
+	// guardarFallback cierra los bloques abiertos y persiste el texto ya
+	// streameado cuando el upstream muere a mitad del turno, para no perder
+	// la respuesta parcial en el chat.
+	guardarFallback := func() *StoredChatMessage {
+		if textStarted {
+			_ = sseHandler.AiMsgTextEnd(textID)
+		}
+		if reasoningStarted {
+			_ = sseHandler.AiMsgReasoningEnd(reasoningID)
+		}
+		_ = sseHandler.AiMsgFinishStep()
+		return extractPartialTextMessage(msgID, textBuilder.String())
+	}
 
 	if cont == nil {
 		_ = sseHandler.AiMsgStart(msgID)
@@ -488,7 +501,7 @@ func processChatStream(
 				break
 			}
 			if sseHandler.Err() != nil {
-				partialMsg := extractPartialTextMessage(msgID, textBuilder.String())
+				partialMsg := guardarFallback()
 				return &uctypes.GulinStopReason{
 					Kind:      uctypes.StopKindCanceled,
 					ErrorType: "client_disconnect",
@@ -520,7 +533,20 @@ func processChatStream(
 		}
 		if err := json.Unmarshal([]byte(data), &rawChunk); err == nil && rawChunk.Error != nil {
 			errText := formatStreamError(rawChunk.Error)
+			// El upstream falló a mitad del stream (típico de MiniMax y proxies:
+			// un 500 después de haber emitido texto). Conservamos lo recibido y
+			// NO abortamos el turno: así el cliente no pierde la respuesta ya
+			// streameada ni se dispara el superfluous WriteHeader del handler.
+			log.Printf("openaichat: upstream stream error mid-turn (partial_text_len=%d): %s\n", textBuilder.Len(), errText)
 			_ = sseHandler.AiMsgError(errText)
+			if textBuilder.Len() > 0 {
+				partialMsg := guardarFallback()
+				return &uctypes.GulinStopReason{
+					Kind:      uctypes.StopKindError,
+					ErrorType: "stream_api",
+					ErrorText: errText,
+				}, partialMsg, nil
+			}
 			return &uctypes.GulinStopReason{
 				Kind:      uctypes.StopKindError,
 				ErrorType: "stream_api",
