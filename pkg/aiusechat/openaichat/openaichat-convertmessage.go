@@ -279,14 +279,28 @@ func buildChatHTTPRequest(ctx context.Context, messages []ChatRequestMessage, ch
 		
 	// Truncate massive messages (e.g terminal outputs, large file attachments)
 	// to prevent individual message explosion.
+	//
+	// contextLimit esta expresado en TOKENS, no en caracteres: se usa
+	// directamente como techo de tokens por mensaje (antes se dividia por 8
+	// asumiendo que era un conteo de caracteres, lo que dejaba el techo en
+	// ~100k tokens y hacia que el branch casi nunca se ejecutara).
 	contextLimit := opts.ContextLimit
 	if contextLimit <= 0 {
-		contextLimit = 512000 / 4 // 128K tokens
+		contextLimit = 128000
 	}
-	sanitizedMessages = truncateLargeMessages(sanitizedMessages, contextLimit/8)
+	sanitizedMessages = truncateLargeMessages(sanitizedMessages, contextLimit/4)
 
 	// Apply sliding window to keep the TOTAL context within model limits.
-	sanitizedMessages = limitTotalMessages(sanitizedMessages, contextLimit)
+	//
+	// Se reserva ~25% del contexto declarado para el completion (el reasoning trace
+	// de modelos como MiniMax M3 consume miles de tokens antes del texto visible).
+	// Sin esta reserva el prompt puede ocupar el 95% de la ventana y el upstream
+	// aborta con un 500 opaco a mitad del stream.
+	promptBudget := contextLimit - contextLimit/4
+	if promptBudget <= 0 {
+		promptBudget = contextLimit
+	}
+	sanitizedMessages = limitTotalMessages(sanitizedMessages, promptBudget)
 
 	// Re-sanitize after truncation to repair any broken assistant-tool pairing
 	// caused by limitTotalMessages cutting messages mid-pair.
