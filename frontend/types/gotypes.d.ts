@@ -1604,6 +1604,7 @@ declare global {
         "gulinbridge:tokensecretname"?: string;
         "ai:ollama_embedding_endpoint"?: string;
         "ai:ollama_embedding_model"?: string;
+        "ai:embedding_provider"?: string;
     };
 
     // gulinobj.StickerClickOptsType

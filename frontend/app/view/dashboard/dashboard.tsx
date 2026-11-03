@@ -10,7 +10,7 @@ import { useAtomValue } from "jotai";
 import { DashboardViewModel } from "./dashboard-model";
 import { ErrorBoundary } from "@/element/errorboundary";
 import { IconButton } from "@/element/iconbutton";
-import { cn } from "@/util/util";
+import { cn } from "@/app/shadcn/lib/utils";
 
 /**
  * DashboardView (MODO BI): Estación de Inteligencia Conversacional.
