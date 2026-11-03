@@ -54,6 +54,16 @@ var memoryCorpusQuotas = map[string]int{
 	CorpusOtros:     1,
 }
 
+// memoryTotalSlots es el numero maximo de ficheros de memoria que se
+// seleccionan por consulta (suma de los cupos por corpus).
+var memoryTotalSlots = func() int {
+	total := 0
+	for _, q := range memoryCorpusQuotas {
+		total += q
+	}
+	return total
+}()
+
 // Palabras vacías que generaban ruido en el matching por nombre.
 var memoryStopWords = map[string]bool{
 	"revisa": true, "revisar": true, "revision": true, "revise": true,
@@ -125,17 +135,42 @@ func normalizeMemoryName(s string) string {
 }
 
 // memoryQueryTokens devuelve los tokens significativos del query.
+//
+// REGLA: un token de 2 caracteres NO se descarta si parece una clave de
+// host/infraestructura ("p8", "db", "dg", "awr"). El caso real que lo
+// motivation: el usuario escribe "las p8 oraprod" y "p8" era descartado
+// por len < 3, dejando la query sin ningun token que enlazase con
+// `oraprod_p8` / `basepro_p8` de memoria/cliente-fasa.md.
 func memoryQueryTokens(query string) []string {
 	fields := strings.Fields(strings.ToLower(query))
 	out := []string{}
 	for _, w := range fields {
 		w = strings.Trim(w, "@,.?!:;\"'()[]{}")
-		if len(w) < 3 || memoryStopWords[w] {
+		if w == "" {
+			continue
+		}
+		if len(w) < 3 {
+			// Solo se mantienen tokens cortos que son claves de infra conocidas.
+			if !memoryShortTokens[w] {
+				continue
+			}
+			out = append(out, w)
+			continue
+		}
+		if memoryStopWords[w] {
 			continue
 		}
 		out = append(out, w)
 	}
 	return out
+}
+
+// memoryShortTokens: tokens de 2-3 chars que son identificadores de
+// infraestructura y NO deben filtrarse por longitud.
+var memoryShortTokens = map[string]bool{
+	"p8": true, "db": true, "dg": true, "awr": true, "ash": true,
+	"addm": true, "srl": true, "rta": true, "os": true, "vm": true,
+	"ip": true, "cpu": true, "sql": true, "tns": true, "asm": true,
 }
 
 // memoryFilenameBoost devuelve el boost de score si una palabra del query
@@ -157,6 +192,10 @@ func memoryFilenameBoost(query, filePath string) float64 {
 
 // queryMentionsClient indica si el query menciona el cliente de la ruta
 // "clientes/<cliente>/...". Solo entonces se usan los cupos de clientes/.
+//
+// Ademas se aceptan ALIAS de host: el usuario dice "las p8" y no "fasa",
+// pero las p8 (oraprod_p8 / basepro_p8) SON el cliente FASA. Sin esto, el
+// corpus clientes/ quedaba bloqueado y sus 32 rutas eran inalcanzables.
 func queryMentionsClient(query, filePath string) bool {
 	p := filepath.ToSlash(filePath)
 	if !strings.HasPrefix(p, "clientes/") {
@@ -174,9 +213,37 @@ func queryMentionsClient(query, filePath string) bool {
 	if strings.Contains(q, client) {
 		return true
 	}
-	// También por token exacto (evita que "fasa" matchee "fascinante").
+	// Tambien por token exacto (evita que "fasa" matchee "fascinante").
 	for _, t := range memoryQueryTokens(query) {
 		if t == client {
+			return true
+		}
+	}
+	// Alias de host -> cliente: "p8" pertenece a FASA.
+	for alias, target := range memoryClientAliases {
+		if alias == target {
+			continue
+		}
+		if !memoryQueryMentionsAlias(query, alias) {
+			continue
+		}
+		if target == client {
+			return true
+		}
+	}
+	return false
+}
+
+// memoryClientAliases mapea alias de host a cliente. "p8" -> "fasa".
+var memoryClientAliases = map[string]string{
+	"p8": "fasa",
+}
+
+// memoryQueryMentionsAlias indica si el query menciona un alias concreto.
+// Para "p8" exige que sea un token propio (no dentro de otra palabra).
+func memoryQueryMentionsAlias(query, alias string) bool {
+	for _, t := range memoryQueryTokens(query) {
+		if t == alias {
 			return true
 		}
 	}
@@ -244,38 +311,84 @@ func SearchGulinMemoryHits(query string) ([]MemoryHit, error) {
 		byFile[k] = list
 	}
 
-	// Reparto por corpus: cupos fijos, independientes del ranking global.
+	// Reparto por corpus: los cupos son un MINIMO garantizado, NO un techo.
+	//
+	// BUG ORIGINAL (medido con el gold set A/B): se iteraba por corpus en
+	// orden fijo (playbooks -> learned -> clientes -> memoria) y cada corpus
+	// se comia su cupo con sus MEJORES ficheros, aunque su score fuera
+	// mediocre. Resultado: 3 ficheros "learned" de Data Guard (irrelevantes
+	// para la pregunta) expulsaban al fichero "memoria" semanticamente
+	// correcto, y el top-3 empeoraba en 5 de 8 consultas.
+	//
+	// FIX: se ordena todo por score global y se recorre en ese orden. Solo
+	// seSaltan ficheros que exceden su cuota si ya se ha cubierto el MINIMO
+	// de ese corpus con ficheros de score igual o mejor. Asi la cuota aporta
+	// diversidad sin pisar al mejor candidato.
 	selected := []string{}
 	used := map[string]bool{}
-	for _, corpus := range []string{CorpusPlaybooks, CorpusLearned, CorpusClientes, CorpusMemoria, CorpusOtros} {
+	corpusCount := map[string]int{}
+
+	// Candidatos globales ordenados por score ajustado (descendente).
+	type cand struct {
+		file string
+		adj  float64
+	}
+	cands := make([]cand, 0, len(fileOrder))
+	for _, f := range fileOrder {
+		cands = append(cands, cand{file: f, adj: byFile[f][0].adj})
+	}
+	sort.SliceStable(cands, func(i, j int) bool { return cands[i].adj > cands[j].adj })
+
+	for _, c := range cands {
+		if len(selected) >= memoryTotalSlots {
+			break
+		}
+		corpus := classifyMemoryCorpus(c.file)
 		quota := memoryCorpusQuotas[corpus]
 		if quota <= 0 {
 			continue
 		}
-		group := []string{}
-		for _, f := range fileOrder {
-			if classifyMemoryCorpus(f) == corpus {
-				group = append(group, f)
+		// Los datos de cliente solo entran si el cliente esta en el query.
+		if corpus == CorpusClientes && !queryMentionsClient(query, c.file) {
+			continue
+		}
+		// Techo por corpus: evita que un corpus domine el prompt.
+		if corpusCount[corpus] >= quota {
+			continue
+		}
+		used[c.file] = true
+		selected = append(selected, c.file)
+		corpusCount[corpus]++
+	}
+
+	// Segunda pasada: se garantiza el minimo por corpus. Si un corpus no
+	// llego al minimo (porque sus ficheros estaban por debajo del corte),
+	// se rellena con los siguientes de ese corpus por score.
+	const corpusMinGuaranteed = 1
+	for _, corpus := range []string{CorpusPlaybooks, CorpusLearned, CorpusClientes, CorpusMemoria, CorpusOtros} {
+		if corpusCount[corpus] >= corpusMinGuaranteed {
+			continue
+		}
+		quota := memoryCorpusQuotas[corpus]
+		if quota <= 0 {
+			continue
+		}
+		group := []cand{}
+		for _, c := range cands {
+			if classifyMemoryCorpus(c.file) == corpus && !used[c.file] {
+				group = append(group, c)
 			}
 		}
-		sort.SliceStable(group, func(i, j int) bool {
-			return byFile[group[i]][0].adj > byFile[group[j]][0].adj
-		})
-		taken := 0
-		for _, f := range group {
-			if taken >= quota {
+		for _, c := range group {
+			if corpusCount[corpus] >= corpusMinGuaranteed {
 				break
 			}
-			if used[f] {
+			if corpus == CorpusClientes && !queryMentionsClient(query, c.file) {
 				continue
 			}
-			// Los datos de cliente solo entran si el cliente está en el query.
-			if corpus == CorpusClientes && !queryMentionsClient(query, f) {
-				continue
-			}
-			used[f] = true
-			selected = append(selected, f)
-			taken++
+			used[c.file] = true
+			selected = append(selected, c.file)
+			corpusCount[corpus]++
 		}
 	}
 

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/gulindev/gulin/pkg/gulinbase"
 )
 
 // TestReindexReplacesChunks verifies the root-cause fix: re-indexing a file must
@@ -281,7 +283,26 @@ func stubEmbeddings(fn func(string) ([]float32, error)) func() {
 	return func() { embeddingProvider = prev }
 }
 
+// TestMain configura el entorno de rutas que usa gulinbase.
+//
+// En produccion, main-server.go llama a CacheAndRemoveEnvVars() para cachear
+// GULIN_CONFIG_HOME / GULIN_DATA_HOME. Sin eso, GetGulinDataDir() devuelve ""
+// y la busqueda de memoria barre "./memoria" relativo al cwd del test (0
+// ficheros). Los tests de memoria (gold set A/B) necesitan el workspace REAL
+// del usuario, asi que se configuran las rutas reales si existen.
 func TestMain(m *testing.M) {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		cfgDir := filepath.Join(home, "Gulin_Workspace", "config")
+		dataDir := filepath.Join(home, "Gulin_Workspace", "data")
+		if _, statErr := os.Stat(filepath.Join(cfgDir, "gulin.config.json")); statErr == nil {
+			os.Setenv("GULIN_CONFIG_HOME", cfgDir)
+			os.Setenv("GULIN_DATA_HOME", dataDir)
+			// CacheAndRemoveEnvVars cachea las rutas y limpia las env vars.
+			// Ignoramos su error: si falla, GetGulinDataDir() seguira vacio.
+			_ = gulinbase.CacheAndRemoveEnvVars()
+		}
+	}
 	os.Exit(m.Run())
 }
 
