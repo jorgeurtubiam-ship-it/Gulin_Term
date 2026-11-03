@@ -139,14 +139,6 @@ func InitVectorDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// PurgeVectorDBOrphans removes skills chunks and orphaned chunks from the given vector
-// database. It must be called explicitly, and never while an indexing pass is running.
-func PurgeVectorDBOrphans(db *sql.DB) (int64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	return PurgeOrphanedAndSkillsChunks(ctx, db)
-}
-
 // ensureClientIDColumn adds the client_id column to pre-existing databases.
 // SQLite has no "ADD COLUMN IF NOT EXISTS", so the schema is inspected first.
 func ensureClientIDColumn(db *sql.DB) error {
