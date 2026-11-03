@@ -43,6 +43,7 @@ const (
 	AIProvider_Custom      = "custom"
 	AIProvider_GulinBridge  = "gulinbridge"
 	AIProvider_AWSBedrock  = "aws-bedrock"
+	AIProvider_MiniMax     = "minimax"
 )
 
 type UseChatRequest struct {

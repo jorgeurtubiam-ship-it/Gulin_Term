@@ -461,6 +461,11 @@ func inferContextLimit(model string) int {
 	case strings.Contains(m, "deepseek"):
 		return 64000
 
+	// MiniMax M-series. El contexto real es 1M; se declara 800k para dejar
+	// margen al completion budget y evitar rechazos de payload.
+	case strings.Contains(m, "minimax"):
+		return 800000
+
 	// Others
 	case strings.Contains(m, "mistral"), strings.Contains(m, "mixtral"), strings.Contains(m, "qwen"):
 		return 32000
@@ -481,6 +486,9 @@ func getProviderFromModelID(modelID string, originalProvider string) string {
 	}
 	if strings.Contains(m, "deepseek-") {
 		return "deepseek"
+	}
+	if strings.Contains(m, "minimax") {
+		return "minimax"
 	}
 	if strings.Contains(m, "llama-") || strings.Contains(m, "meta-") {
 		return "meta"
