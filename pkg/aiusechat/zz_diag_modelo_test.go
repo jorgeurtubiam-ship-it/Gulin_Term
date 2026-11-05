@@ -25,6 +25,9 @@ import (
 // columna embedding_provider NO sirve para detectarlo: ambos registros
 // dicen "ollama-nomic-embed-text".
 func TestDiagnoseModeloCambiado(t *testing.T) {
+	if os.Getenv("GULIN_DIAG") == "" {
+		t.Skip("test de diagnostico manual: exporta GULIN_DIAG=1 para ejecutarlo")
+	}
 	sqlite_vec.Auto()
 	ctx := context.Background()
 

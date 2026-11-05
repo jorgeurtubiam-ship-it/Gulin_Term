@@ -129,8 +129,12 @@ func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapab
 finalize:
 	// Los modelos Lite (Gemini Flash, GPT-4o-mini) en el Bridge se confunden con el Strict AddOn.
 	// Solo lo usaremos para modelos locales o proveedores que requieran ejecución estricta.
-	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek|minimax)\b`, modelLower)
-	if needsStrictToolAddOn && !useNoToolsPrompt {
+	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
+	// Anthropic usa tool_use/tool_result nativos con schema estricto: el StrictToolAddOn
+	// (pensado para modelos OpenAI-compatibles) provoca loops de parseo. MiniMax-M3 corre
+	// sobre dialecto Anthropic, por eso se excluye minimax de la lista anterior.
+	isAnthropicDialect := apiType == uctypes.APIType_AnthropicMessages
+	if needsStrictToolAddOn && !useNoToolsPrompt && !isAnthropicDialect {
 		prompts = append(prompts, GetSystemPromptText_StrictToolAddOn())
 	}
 

@@ -44,7 +44,42 @@ const (
 	AIProvider_GulinBridge  = "gulinbridge"
 	AIProvider_AWSBedrock  = "aws-bedrock"
 	AIProvider_MiniMax     = "minimax"
+	AIProvider_Anthropic   = "anthropic"
 )
+
+// ProviderAliases mapea alias/variantes de nombre de provider a las constantes canónicas.
+// Evita que valores viejos o escritos a mano (ej: "MiniMax1", "MiniMax-Anth", "claude")
+// caigan en el backend genérico en vez del backend correcto.
+var ProviderAliases = map[string]string{
+	"minimax":           AIProvider_MiniMax,
+	"minimax1":          AIProvider_MiniMax,
+	"mini-max":          AIProvider_MiniMax,
+	"minimax-anthropic": AIProvider_MiniMax,
+	"minimax-an":        AIProvider_MiniMax,
+	"minimax-m3":        AIProvider_MiniMax,
+	"anthropic":         AIProvider_Anthropic,
+	"claude":            AIProvider_Anthropic,
+	"anthropic-api":     AIProvider_Anthropic,
+}
+
+// NormalizeProvider convierte un provider arbitrario (mayúsculas, sufijos o alias)
+// en la constante canónica. Si no matchea ningún alias devuelve el valor en minúsculas.
+func NormalizeProvider(provider string) string {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	if p == "" {
+		return ""
+	}
+	if canonical, ok := ProviderAliases[p]; ok {
+		return canonical
+	}
+	if strings.HasPrefix(p, "minimax") {
+		return AIProvider_MiniMax
+	}
+	if strings.HasPrefix(p, "claude") || strings.HasPrefix(p, "anthropic") {
+		return AIProvider_Anthropic
+	}
+	return p
+}
 
 type UseChatRequest struct {
 	Messages []UIMessage `json:"messages"`

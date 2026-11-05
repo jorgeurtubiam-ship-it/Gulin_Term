@@ -16,6 +16,9 @@ import (
 // Esto decide si el plan de mejora de memoria (subir topK, quitar el
 // fallback por nombre) tiene sentido sobre el estado actual.
 func TestEstadoRealProviders(t *testing.T) {
+	if os.Getenv("GULIN_DIAG") == "" {
+		t.Skip("test de diagnostico manual: exporta GULIN_DIAG=1 para ejecutarlo")
+	}
 	sqlite_vec.Auto()
 	ctx := context.Background()
 

@@ -3,13 +3,21 @@
 
 // Package minimax implementa el backend de MiniMax.
 //
-// MiniMax habla el dialecto OpenAI Chat Completions, por lo que todo el
-// transporte, streaming y conversion de mensajes se delega a
-// pkg/aiusechat/openaichat (mismo patron que deepseek/ y groq/).
+// MiniMax expone DOS dialectos sobre el mismo modelo:
 //
-// La razon de tener un backend propio y no caer en el default de
-// openaiCompletionsBackend es que MiniMax necesita tres ajustes de
-// configuracion antes de delegar:
+//   - Anthropic Messages : <base>/anthropic/v1/messages  (tool_use / reasoning nativo)
+//   - OpenAI Chat        : <base>/v1/chat/completions     (function calling)
+//
+// El transporte, streaming y la conversion de mensajes se resuelven segun el
+// APIType ya resuelto por usechat-mode (que lo deriva del endpoint configurado):
+//
+//   - Dialecto OpenAI     -> se delega a pkg/aiusechat/openaichat
+//     (mismo patron que deepseek/ y groq/).
+//   - Dialecto Anthropic  -> se delega a pkg/aiusechat/anthropic, que ya maneja
+//     bloques thinking, tool_use/tool_result y el pairing estricto.
+//
+// La razon de tener un backend propio y no caer en el default compartido es que
+// MiniMax necesita tres ajustes de configuracion antes de delegar:
 //
 //  1. ContextLimit: si el modo no declara ai:contextlimit, inferContextLimit
 //     resuelve 800000 para la familia minimax. Aqui solo se rellena el hueco
@@ -26,7 +34,10 @@ package minimax
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
 
+	"github.com/gulindev/gulin/pkg/aiusechat/anthropic"
 	"github.com/gulindev/gulin/pkg/aiusechat/openaichat"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/web/sse"
@@ -41,7 +52,36 @@ const (
 	// MinReasoningTokens es el piso de max_tokens necesario para que el
 	// reasoning trace de MiniMax quepa completo antes de la respuesta visible.
 	MinReasoningTokens = 32768
+
+	// MaxReasoningTokens es el techo duro de max_tokens aceptado por la API
+	// de MiniMax. Pedir mas provoca un 500 opaco "internal_error" desde su
+	// gateway en lugar de un 400 explicativo, asi que nunca se envia mas.
+	MaxReasoningTokens = 32768
+
+	// LegacyMaxTokens es el techo de max_tokens de los modelos MiniMax
+	// anteriores a la familia M (abab*, text-*). Esos modelos no emiten
+	// reasoning trace y su API rechaza valores de 32k con el mismo 500 opaco.
+	LegacyMaxTokens = 16384
 )
+
+// isLegacyMiniMaxModel reporta si el modelo pertenece a la generacion previa a
+// la familia M (abab5.5, abab6, text-01...). Esos modelos tienen un techo de
+// max_tokens mucho menor y no soportan reasoning trace.
+func isLegacyMiniMaxModel(model string) bool {
+	m := strings.ToLower(model)
+	if strings.HasPrefix(m, "abab") {
+		return true
+	}
+	return strings.HasPrefix(m, "text-")
+}
+
+// maxTokensCeiling devuelve el techo de max_tokens admitido por el modelo.
+func maxTokensCeiling(model string) int {
+	if isLegacyMiniMaxModel(model) {
+		return LegacyMaxTokens
+	}
+	return MaxReasoningTokens
+}
 
 // MiniMaxBackend implementa UseChatBackend para la API de MiniMax.
 type MiniMaxBackend struct{}
@@ -65,8 +105,25 @@ func applyMiniMaxDefaults(chatOpts *uctypes.GulinChatOpts) {
 	if chatOpts.Config.ContextLimit <= 0 {
 		chatOpts.Config.ContextLimit = DefaultContextLimit
 	}
-	if chatOpts.Config.MaxTokens < MinReasoningTokens {
-		chatOpts.Config.MaxTokens = MinReasoningTokens
+
+	ceiling := maxTokensCeiling(chatOpts.Config.Model)
+
+	// Piso: asegura espacio para el reasoning trace de la familia M.
+	floor := MinReasoningTokens
+	if isLegacyMiniMaxModel(chatOpts.Config.Model) {
+		floor = 0
+	}
+	if chatOpts.Config.MaxTokens < floor {
+		chatOpts.Config.MaxTokens = floor
+	}
+
+	// Techo: MiniMax devuelve 500 "internal_error" (sin detalle) cuando
+	// max_tokens excede el limite del modelo. Recortamos en lugar de dejar
+	// que el turno muera con un error opaco.
+	if chatOpts.Config.MaxTokens > ceiling {
+		log.Printf("minimax: max_tokens %d excede el techo de %s (%d), recortando\n",
+			chatOpts.Config.MaxTokens, chatOpts.Config.Model, ceiling)
+		chatOpts.Config.MaxTokens = ceiling
 	}
 }
 
@@ -78,20 +135,62 @@ func (b *MiniMaxBackend) RunChatStep(
 ) (*uctypes.GulinStopReason, []uctypes.GenAIMessage, *uctypes.RateLimitInfo, error) {
 	applyMiniMaxDefaults(&chatOpts)
 
-	stopReason, msgs, rateLimitInfo, err := openaichat.RunChatStep(ctx, sseHandler, chatOpts, cont)
+	// Despacho por dialecto. MiniMax expone el mismo modelo por Anthropic
+	// Messages y por OpenAI Chat; usar el transporte equivocado pierde tool
+	// calls (el dialecto Anthropic devuelve bloques tool_use que openaichat
+	// no entiende, y viceversa).
+	useAnthropic := resolveDialect(chatOpts.Config.Endpoint, chatOpts.Config.APIType) == uctypes.APIType_AnthropicMessages
 
-	genMsgs := make([]uctypes.GenAIMessage, 0, len(msgs))
-	for _, msg := range msgs {
-		genMsgs = append(genMsgs, msg)
+	// Registrar el dialecto efectivo para que los helpers sin endpoint en la
+	// firma (conversion de tool results y de mensajes almacenados) usen el
+	// mismo transporte. Sin esto, un modo OpenAI Chat convertia las tool calls
+	// por Anthropic y el modelo nunca veia el resultado: bucle infinito.
+	effectiveDialect := uctypes.APIType_OpenAIChat
+	if useAnthropic {
+		effectiveDialect = uctypes.APIType_AnthropicMessages
 	}
+	setActiveDialect(chatOpts.ChatId, effectiveDialect)
+	setLastResolvedDialect(effectiveDialect)
+
+	var (
+		stopReason    *uctypes.GulinStopReason
+		rateLimitInfo *uctypes.RateLimitInfo
+		err           error
+	)
+	genMsgs := []uctypes.GenAIMessage{}
+
+	if useAnthropic {
+		var msg uctypes.GenAIMessage
+		stopReason, msg, rateLimitInfo, err = anthropic.RunAnthropicChatStep(ctx, sseHandler, chatOpts, cont)
+		if msg != nil {
+			genMsgs = append(genMsgs, msg)
+		}
+	} else {
+		var msgs []*openaichat.StoredChatMessage
+		stopReason, msgs, rateLimitInfo, err = openaichat.RunChatStep(ctx, sseHandler, chatOpts, cont)
+		for _, msg := range msgs {
+			genMsgs = append(genMsgs, msg)
+		}
+	}
+
+	// Asociar cada tool call emitida con este chat. La conversion de tool
+	// results no recibe chatId en la firma: sin este registro se usaria el
+	// dialecto global y dos sesiones concurrentes (una Anthropic y otra
+	// OpenAI) se pisarian mutuamente.
+	registerToolCallsForChat(chatOpts.ChatId, stopReason)
 
 	// Turno abortado sin ningun contenido emitido: el usuario veria un chat
 	// congelado sin causa. Se devuelve un error explicable.
 	if err != nil && len(genMsgs) == 0 {
+		forgetChatToolCalls(chatOpts.ChatId)
+		dialect := "openai-chat"
+		if useAnthropic {
+			dialect = "anthropic-messages"
+		}
 		return stopReason, genMsgs, rateLimitInfo, fmt.Errorf(
-			"minimax: el proveedor aborto el stream antes de emitir contenido "+
-				"(contextlimit=%d, maxtokens=%d): %w",
-			chatOpts.Config.ContextLimit, chatOpts.Config.MaxTokens, err,
+			"minimax (%s): el proveedor aborto el stream antes de emitir contenido "+
+				"(endpoint=%s, contextlimit=%d, maxtokens=%d): %w",
+			dialect, chatOpts.Config.Endpoint, chatOpts.Config.ContextLimit, chatOpts.Config.MaxTokens, err,
 		)
 	}
 
@@ -107,17 +206,33 @@ func (b *MiniMaxBackend) RemoveToolUseCall(chatId string, toolCallId string) err
 }
 
 func (b *MiniMaxBackend) ConvertToolResultsToNativeChatMessage(toolResults []uctypes.AIToolResult) ([]uctypes.GenAIMessage, error) {
-	return openaichat.ConvertToolResultsToNativeChatMessage(toolResults)
+	// Sin chatId en la firma: se recupera el chat dueño de las tool calls
+	// (sembrado por registerToolCallsForChat). Si no se conoce, se cae al
+	// ultimo dialecto resuelto y, en ultimo termino, a Anthropic.
+	chatId := lookupChatForToolResults(toolResults)
+	dialect := resolveDialectForChat(chatId, "")
+	msgs, err := convertToolResultsDialect(dialect, toolResults)
+	if err != nil {
+		return nil, err
+	}
+	return msgs, nil
 }
 
 func (b *MiniMaxBackend) ConvertAIMessageToNativeChatMessage(message uctypes.AIMessage) (uctypes.GenAIMessage, error) {
-	return openaichat.ConvertAIMessageToStoredChatMessage(message)
+	// AIMessage no transporta APIType: se consulta el dialecto registrado para
+	// el chat. Si no hay registro se usa Anthropic, el default documentado.
+	dialect := resolveDialectForChat("", "")
+	return convertAIMessage(dialect, message)
 }
 
 func (b *MiniMaxBackend) GetFunctionCallInputByToolCallId(aiChat uctypes.AIChat, toolCallId string) *uctypes.AIFunctionCallInput {
+	dialect := resolveDialectForChat("", aiChat.APIType)
+	if dialect == uctypes.APIType_AnthropicMessages {
+		return nil
+	}
 	return openaichat.GetFunctionCallInputByToolCallId(aiChat, toolCallId)
 }
 
 func (b *MiniMaxBackend) ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
-	return openaichat.ConvertAIChatToUIChat(aiChat)
+	return convertAIChatToUIChat(resolveDialectForChat("", aiChat.APIType), aiChat)
 }

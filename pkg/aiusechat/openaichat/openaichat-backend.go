@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/launchdarkly/eventsource"
 	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
 	"github.com/gulindev/gulin/pkg/aiusechat/chatstore"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/gulinbase"
 	"github.com/gulindev/gulin/pkg/web/sse"
+	"github.com/launchdarkly/eventsource"
 )
 
 // MaxRequestRetries is the number of extra attempts performed when the
@@ -163,7 +163,7 @@ func RunChatStep(
 		strings.Contains(chatOpts.Config.Endpoint, ":8090") ||
 		strings.Contains(chatOpts.Config.Endpoint, "gulinbridge") ||
 		strings.Contains(chatOpts.Config.Endpoint, "proxy.gulin.cl")
-	
+
 	limit := 100
 	if chatOpts.TokenMode == uctypes.TokenModeMini {
 		limit = 15
@@ -177,7 +177,7 @@ func RunChatStep(
 		limit = 20
 	}
 
-	if (isBridge || chatOpts.TokenMode != "") {
+	if isBridge || chatOpts.TokenMode != "" {
 		nativeMessages = uctypes.TruncateMessagesSafe(nativeMessages, limit)
 	}
 
@@ -220,12 +220,23 @@ func RunChatStep(
 	// a retry the whole chat turn dies and the user has to re-send it.
 	resp, err := doWithRetry(ctx, client, req)
 	if err != nil {
+		// El turno muere antes de abrir el stream. Sin notificar por SSE el
+		// cliente solo ve un 500 del handler, sin modelo, provider ni la causa
+		// real que devolvio el upstream. Emitimos el error por el canal para
+		// que el mensaje sea accionable.
+		if setupErr := sseHandler.SetupSSE(); setupErr == nil {
+			_ = sseHandler.WriteError(fmt.Sprintf("Proveedor %s respondio con error (modelo: %s): %v", chatOpts.Config.Provider, chatOpts.Config.Model, err))
+			return nil, nil, nil, fmt.Errorf("request failed: %w", err)
+		}
 		return nil, nil, nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		if setupErr := sseHandler.SetupSSE(); setupErr == nil {
+			_ = sseHandler.WriteError(fmt.Sprintf("Proveedor %s devolvio HTTP %d (modelo: %s): %s", chatOpts.Config.Provider, resp.StatusCode, chatOpts.Config.Model, strings.TrimSpace(string(bodyBytes))))
+		}
 		return nil, nil, nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -248,7 +259,7 @@ func RunChatStep(
 
 		// Clean any leading SSE heartbeats (e.g. data: {"heartbeat": true}) that the Bridge might have prepended before yielding the full JSON payload
 		bodyStr := string(bodyBytes)
-		
+
 		// Improved cleaning: strip all "data:" or "event:" prefixes from the start of every line
 		// to handle cases where multiple SSE chunks are concatenated.
 		lines := strings.Split(bodyStr, "\n")
@@ -264,8 +275,8 @@ func RunChatStep(
 				cleanedLines = append(cleanedLines, trimmedLine)
 			}
 		}
-		
-		// If we found multiple data lines, they are likely separate JSON objects (heartbeats) 
+
+		// If we found multiple data lines, they are likely separate JSON objects (heartbeats)
 		// if they represent a real stream, we should NOT process them as a single JSON object.
 		canProcessAsSingleJSON := false
 		bodyStr = ""
@@ -287,7 +298,7 @@ func RunChatStep(
 		}
 
 		cleanedBytes := []byte(bodyStr)
-		
+
 		// Parse full non-streaming response
 		var fullResp struct {
 			ID      string `json:"id"`
@@ -307,7 +318,7 @@ func RunChatStep(
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 		}
-		
+
 		if canProcessAsSingleJSON && json.Unmarshal(cleanedBytes, &fullResp) == nil && fullResp.Error != nil {
 			var errMsg string
 			if s, ok := fullResp.Error.Message.(string); ok {
@@ -317,7 +328,7 @@ func RunChatStep(
 			}
 			return nil, nil, nil, fmt.Errorf("AI Provider Error: %s", errMsg)
 		}
-		
+
 		if !canProcessAsSingleJSON || (json.Unmarshal(cleanedBytes, &fullResp) != nil || len(fullResp.Choices) == 0) {
 			// If it doesn't even contain "data:" anywhere, it is strictly IMPOSSIBLE that this is an SSE stream.
 			// It must be a raw text/HTML error from the proxy (e.g. 502 Bad Gateway or 413 Payload Too Large).
@@ -331,13 +342,13 @@ func RunChatStep(
 				}
 				return nil, nil, nil, fmt.Errorf("Gateway Error: %s", errMsg)
 			}
-			
+
 			log.Printf("openaichat TRACE 4: failed to parse Bridge JSON properly (err: %v, choices: %d). Must be SSE chunks, falling back to stream decoder. Raw data: %s\n", err, len(fullResp.Choices), string(cleanedBytes))
-			
+
 			if len(originalBodyBytes) == 0 {
-			    return nil, nil, nil, fmt.Errorf("failed to read bridge response body (0 bytes returned)")
+				return nil, nil, nil, fmt.Errorf("failed to read bridge response body (0 bytes returned)")
 			}
-			
+
 			// Fallback: it's actually an SSE stream. Wrap the ORIGINAL body bytes (which contain the `data: ` chunks) so the decoder can read them!
 			// If it's missing the [DONE] terminator because of unexpected EOF cut, append it safely.
 			bodyReader = strings.NewReader(string(originalBodyBytes) + "\n\ndata: [DONE]\n\n")
@@ -480,6 +491,53 @@ func processChatStream(
 		return extractPartialTextMessage(msgID, textBuilder.String())
 	}
 
+	// guardarFallbackConTools persiste lo recibido cuando el upstream muere a
+	// mitad de una ronda de TOOL CALLS. Sin esto el assistantMsg se perdia y el
+	// historial quedaba sin las tool_calls que el runtime ya habia ejecutado:
+	// el proveedor no veia el pairing, volvia a pedir la misma herramienta y el
+	// turno entraba en bucle infinito hasta que su gateway respondia 500
+	// "internal_error" (observado en MiniMax con herramientas pesadas como
+	// git log, read_text_file, git diff...).
+	guardarFallbackConTools := func() *StoredChatMessage {
+		if textStarted {
+			_ = sseHandler.AiMsgTextEnd(textID)
+		}
+		if reasoningStarted {
+			_ = sseHandler.AiMsgReasoningEnd(reasoningID)
+		}
+		_ = sseHandler.AiMsgFinishStep()
+
+		msg := extractPartialTextMessage(msgID, textBuilder.String())
+		if msg == nil {
+			msg = &StoredChatMessage{
+				MessageId: msgID,
+				Message:   ChatRequestMessage{Role: "assistant"},
+			}
+		}
+
+		var salvadas []ToolCall
+		for _, tc := range toolCallsInProgress {
+			if tc.Function.Name == "" {
+				continue
+			}
+			// Argumentos truncados a medias no se pueden reconstruir:
+			// emitirlos haria fallar el parseo del siguiente turno.
+			if tc.Function.Arguments != "" && !json.Valid([]byte(tc.Function.Arguments)) {
+				log.Printf("openaichat: descartando tool call %q con argumentos truncados\n", tc.Function.Name)
+				continue
+			}
+			if tc.ID == "" {
+				tc.ID = "call_" + tc.Function.Name
+			}
+			salvadas = append(salvadas, tc)
+		}
+		if len(salvadas) > 0 {
+			msg.Message.ToolCalls = salvadas
+			log.Printf("openaichat: preservando %d tool call(s) tras corte del upstream para mantener el pairing\n", len(salvadas))
+		}
+		return msg
+	}
+
 	if cont == nil {
 		_ = sseHandler.AiMsgStart(msgID)
 	}
@@ -537,8 +595,19 @@ func processChatStream(
 			// un 500 después de haber emitido texto). Conservamos lo recibido y
 			// NO abortamos el turno: así el cliente no pierde la respuesta ya
 			// streameada ni se dispara el superfluous WriteHeader del handler.
-			log.Printf("openaichat: upstream stream error mid-turn (partial_text_len=%d): %s\n", textBuilder.Len(), errText)
+			log.Printf("openaichat: upstream stream error mid-turn (partial_text_len=%d, tool_calls=%d): %s\n", textBuilder.Len(), len(toolCallsInProgress), errText)
 			_ = sseHandler.AiMsgError(errText)
+			// Corte con tool calls ya emitidas: se persisten junto al texto parcial
+			// para que el siguiente turno cierre el pairing. Si se descartan, el
+			// modelo repite las mismas herramientas en bucle hasta el 500.
+			if len(toolCallsInProgress) > 0 {
+				partialMsg := guardarFallbackConTools()
+				return &uctypes.GulinStopReason{
+					Kind:      uctypes.StopKindError,
+					ErrorType: "stream_api",
+					ErrorText: errText,
+				}, partialMsg, nil
+			}
 			if textBuilder.Len() > 0 {
 				partialMsg := guardarFallback()
 				return &uctypes.GulinStopReason{

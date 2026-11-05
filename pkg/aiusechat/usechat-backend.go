@@ -77,6 +77,7 @@ func GetBackendByAPIType(apiType string) (UseChatBackend, error) {
 
 // GetBackend returns the appropriate UseChatBackend implementation for the given API type and provider
 func GetBackend(apiType string, provider string) (UseChatBackend, error) {
+	provider = uctypes.NormalizeProvider(provider)
 	switch apiType {
 	case uctypes.APIType_OpenAIResponses:
 		return &openaiResponsesBackend{}, nil

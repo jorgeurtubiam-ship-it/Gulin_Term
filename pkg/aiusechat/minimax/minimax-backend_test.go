@@ -27,9 +27,11 @@ func TestApplyMiniMaxDefaultsRellenaHuecos(t *testing.T) {
 }
 
 // TestApplyMiniMaxDefaultsRespetaValoresMayores verifica que el wrapper NO
-// degrade una configuracion superior ya declarada por el modo.
+// degrade una configuracion superior ya declarada por el modo, salvo el techo
+// duro de max_tokens que impone la API de MiniMax.
 func TestApplyMiniMaxDefaultsRespetaValoresMayores(t *testing.T) {
 	opts := uctypes.GulinChatOpts{}
+	opts.Config.Model = "MiniMax-M3.1-Flash"
 	opts.Config.ContextLimit = 1000000
 	opts.Config.MaxTokens = 65536
 
@@ -38,8 +40,56 @@ func TestApplyMiniMaxDefaultsRespetaValoresMayores(t *testing.T) {
 	if opts.Config.ContextLimit != 1000000 {
 		t.Fatalf("ContextLimit fue degradado a %d", opts.Config.ContextLimit)
 	}
-	if opts.Config.MaxTokens != 65536 {
-		t.Fatalf("MaxTokens fue degradado a %d", opts.Config.MaxTokens)
+	if opts.Config.MaxTokens != MaxReasoningTokens {
+		t.Fatalf("MaxTokens = %d, esperado techo %d", opts.Config.MaxTokens, MaxReasoningTokens)
+	}
+}
+
+// TestApplyMiniMaxDefaultsRecortaModeloLegacy verifica que los modelos previos
+// a la familia M no reciban el piso de reasoning (32k), que su API rechaza con
+// un 500 opaco.
+func TestApplyMiniMaxDefaultsRecortaModeloLegacy(t *testing.T) {
+	for _, model := range []string{"abab6.5s-chat", "text-01"} {
+		opts := uctypes.GulinChatOpts{}
+		opts.Config.Model = model
+		opts.Config.MaxTokens = MinReasoningTokens
+
+		applyMiniMaxDefaults(&opts)
+
+		if opts.Config.MaxTokens != LegacyMaxTokens {
+			t.Fatalf("%s: MaxTokens = %d, esperado %d", model, opts.Config.MaxTokens, LegacyMaxTokens)
+		}
+	}
+}
+
+// TestApplyMiniMaxDefaultsNoBajaPisoFamiliaM verifica que un valor pequeno
+// declarado por el modo se eleve al piso de reasoning de la familia M.
+func TestApplyMiniMaxDefaultsNoBajaPisoFamiliaM(t *testing.T) {
+	opts := uctypes.GulinChatOpts{}
+	opts.Config.Model = "MiniMax-M3.1-Flash"
+	opts.Config.MaxTokens = 2048
+
+	applyMiniMaxDefaults(&opts)
+
+	if opts.Config.MaxTokens != MinReasoningTokens {
+		t.Fatalf("MaxTokens = %d, esperado piso %d", opts.Config.MaxTokens, MinReasoningTokens)
+	}
+}
+
+// TestMaxTokensCeiling garantiza que el techo nunca supere lo que la API de
+// MiniMax acepta sin devolver 500 "internal_error".
+func TestMaxTokensCeiling(t *testing.T) {
+	if MaxReasoningTokens > 32768 {
+		t.Fatalf("MaxReasoningTokens=%d excede el maximo conocido de la API", MaxReasoningTokens)
+	}
+	if LegacyMaxTokens >= MaxReasoningTokens {
+		t.Fatalf("LegacyMaxTokens=%d deberia ser menor que MaxReasoningTokens=%d", LegacyMaxTokens, MaxReasoningTokens)
+	}
+	if got := maxTokensCeiling("MiniMax-M3.1-Flash"); got != MaxReasoningTokens {
+		t.Fatalf("techo familia M = %d, esperado %d", got, MaxReasoningTokens)
+	}
+	if got := maxTokensCeiling("abab6.5s-chat"); got != LegacyMaxTokens {
+		t.Fatalf("techo legacy = %d, esperado %d", got, LegacyMaxTokens)
 	}
 }
 

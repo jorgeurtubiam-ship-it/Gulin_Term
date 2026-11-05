@@ -80,6 +80,9 @@ func resolveAIMode(requestedMode string, premium bool) (string, *wconfig.AIModeC
 }
 
 func applyProviderDefaults(config *wconfig.AIModeConfigType) {
+	// Normalizar alias de provider (ej: "MiniMax1" -> "minimax", "Claude" -> "anthropic")
+	// para que no caigan en el backend genérico por diferencia de mayúsculas/sufijos.
+	config.Provider = uctypes.NormalizeProvider(config.Provider)
 	if config.ContextLimit <= 0 {
 		config.ContextLimit = inferContextLimit(config.Model)
 	}
@@ -256,9 +259,64 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 			config.Capabilities = []string{uctypes.AICapabilityTools}
 		}
 	}
+	if config.Provider == uctypes.AIProvider_MiniMax {
+		// MiniMax expone DOS dialectos sobre el MISMO modelo:
+		//   - Anthropic Messages : https://api.minimax.io/anthropic/v1/messages
+		//   - OpenAI Chat        : https://api.minimax.io/v1/chat/completions
+		// El APIType debe derivarse del endpoint configurado; hardcodear Anthropic
+		// rompe silenciosamente cualquier modo apuntado al dialecto OpenAI.
+		isOpenAIDialect := minimaxEndpointIsOpenAI(config.Endpoint)
+		if config.APIType == "" {
+			if isOpenAIDialect {
+				config.APIType = uctypes.APIType_OpenAIChat
+			} else {
+				config.APIType = uctypes.APIType_AnthropicMessages
+			}
+		}
+		// Respetar un APIType explícito: solo se corrige si contradice al endpoint.
+		if isOpenAIDialect && config.APIType == uctypes.APIType_AnthropicMessages {
+			config.APIType = uctypes.APIType_OpenAIChat
+		} else if !isOpenAIDialect && config.APIType == uctypes.APIType_OpenAIChat && strings.Contains(config.Endpoint, "/anthropic") {
+			config.APIType = uctypes.APIType_AnthropicMessages
+		}
+		if config.Endpoint == "" {
+			if config.APIType == uctypes.APIType_OpenAIChat {
+				config.Endpoint = "https://api.minimax.io/v1/chat/completions"
+			} else {
+				config.Endpoint = "https://api.minimax.io/anthropic/v1/messages"
+			}
+		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools}
+		}
+	}
+	if config.Provider == uctypes.AIProvider_Anthropic {
+		if config.APIType == "" {
+			config.APIType = uctypes.APIType_AnthropicMessages
+		}
+		if config.Endpoint == "" {
+			config.Endpoint = "https://api.anthropic.com/v1/messages"
+		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools, uctypes.AICapabilityImages, uctypes.AICapabilityPdfs}
+		}
+	}
 	if config.APIType == "" {
 		config.APIType = uctypes.APIType_OpenAIChat
 	}
+}
+
+// minimaxEndpointIsOpenAI reporta si el endpoint apunta al dialecto OpenAI Chat
+// Completions de MiniMax (en vez del dialecto Anthropic Messages).
+func minimaxEndpointIsOpenAI(endpoint string) bool {
+	e := strings.ToLower(strings.TrimSpace(endpoint))
+	if e == "" {
+		return false
+	}
+	if strings.Contains(e, "/anthropic") {
+		return false
+	}
+	return strings.Contains(e, "/chat/completions") || strings.Contains(e, "/chat/completion")
 }
 
 func isAzureAPIType(apiType string) bool {

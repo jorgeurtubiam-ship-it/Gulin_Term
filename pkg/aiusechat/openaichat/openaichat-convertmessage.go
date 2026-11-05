@@ -25,8 +25,95 @@ func init() {
 	uctypes.NativeMessageUnmarshalers[uctypes.APIType_OpenAIChat] = func(data []byte) (uctypes.GenAIMessage, error) {
 		var msg StoredChatMessage
 		err := json.Unmarshal(data, &msg)
+		if err == nil && msg.Message.Role != "" {
+			return &msg, nil
+		}
+
+		// Fallback: Si el JSON no tiene el wrapper "message" (p.ej. guardado previamente con formato
+		// Anthropic {"role":"user","content":[...]} o genérico {"role":...}), lo convertimos a
+		// StoredChatMessage válido para que el turno no reciba Role: "" que rompe a MiniMax con 400.
+		var raw struct {
+			MessageID string          `json:"messageid"`
+			Role      string          `json:"role"`
+			Content   json.RawMessage `json:"content"`
+			Pinned    bool            `json:"pinned"`
+		}
+		if errRaw := json.Unmarshal(data, &raw); errRaw == nil && (raw.Role != "" || len(raw.Content) > 0) {
+			role := raw.Role
+			if role == "" {
+				role = "user"
+			}
+
+			// 1. Probar si content es un string plano
+			var textContent string
+			if errStr := json.Unmarshal(raw.Content, &textContent); errStr == nil {
+				return &StoredChatMessage{
+					MessageId: raw.MessageID,
+					Pinned:    raw.Pinned,
+					Message: ChatRequestMessage{
+						Role:    role,
+						Content: textContent,
+					},
+				}, nil
+			}
+
+			// 2. Probar si content es una lista de bloques (Anthropic / AIMessageParts)
+			var blocks []struct {
+				Type      string `json:"type"`
+				Text      string `json:"text,omitempty"`
+				ToolUseID string `json:"tool_use_id,omitempty"`
+				Content   any    `json:"content,omitempty"`
+			}
+			if errBlocks := json.Unmarshal(raw.Content, &blocks); errBlocks == nil && len(blocks) > 0 {
+				if blocks[0].Type == "tool_result" {
+					var contentStr string
+					switch c := blocks[0].Content.(type) {
+					case string:
+						contentStr = c
+					default:
+						b, _ := json.Marshal(c)
+						contentStr = string(b)
+					}
+					return &StoredChatMessage{
+						MessageId: raw.MessageID,
+						Pinned:    raw.Pinned,
+						Message: ChatRequestMessage{
+							Role:       "tool",
+							ToolCallID: blocks[0].ToolUseID,
+							Content:    contentStr,
+						},
+					}, nil
+				}
+
+				var sb strings.Builder
+				for _, b := range blocks {
+					if b.Text != "" {
+						if sb.Len() > 0 {
+							sb.WriteString("\n\n")
+						}
+						sb.WriteString(b.Text)
+					}
+				}
+				return &StoredChatMessage{
+					MessageId: raw.MessageID,
+					Pinned:    raw.Pinned,
+					Message: ChatRequestMessage{
+						Role:    role,
+						Content: sb.String(),
+					},
+				}, nil
+			}
+		}
+
 		if err != nil {
 			return nil, err
+		}
+		if msg.Message.Role == "" {
+			if msg.Message.Content != "" || len(msg.Message.ContentParts) > 0 {
+				msg.Message.Role = "user"
+				return &msg, nil
+			}
+			return nil, fmt.Errorf("StoredChatMessage missing role")
 		}
 		return &msg, nil
 	}
@@ -856,6 +943,22 @@ func sanitizeOpenAIMessages(messages []ChatRequestMessage) []ChatRequestMessage 
 
 	var sanitized []ChatRequestMessage
 	for i, msg := range messages {
+		// Normalizar roles que proveedores estrictos como MiniMax rechazan con 400 (error 2013)
+		if msg.Role == "developer" {
+			msg.Role = "system"
+		} else if msg.Role == "" {
+			if msg.Content != "" || len(msg.ContentParts) > 0 {
+				msg.Role = "user"
+			} else if len(msg.ToolCalls) > 0 {
+				msg.Role = "assistant"
+			} else if msg.ToolCallID != "" {
+				msg.Role = "tool"
+			} else {
+				// Mensaje vacío y sin rol: descartar para no enviar {"role":""}
+				continue
+			}
+		}
+
 		if msg.Role == "assistant" {
 			// Strip thinking/reasoning tags (<think>...</think>, <thought>...</thought>)
 			// so that historical CoT is never resent in subsequent turns.
