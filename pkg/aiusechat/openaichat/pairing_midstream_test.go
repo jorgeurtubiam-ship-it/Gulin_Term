@@ -32,7 +32,7 @@ data: {"type":"error","error":{"type":"internal_error","message":"Internal serve
 		Config: uctypes.AIOptsType{Model: "MiniMax-M2"},
 	}
 
-	stopReason, msg, _ := processChatStream(ctx, strings.NewReader(stream), h, opts, nil)
+	stopReason, msg, _ := processChatStream(ctx, strings.NewReader(stream), []byte(stream), h, opts, nil)
 
 	if stopReason == nil || stopReason.ErrorType != "stream_api" {
 		t.Fatalf("stopReason inesperado: %+v", stopReason)
@@ -74,7 +74,7 @@ data: {"type":"error","error":{"type":"internal_error","message":"Internal serve
 		Config: uctypes.AIOptsType{Model: "MiniMax-M2"},
 	}
 
-	_, msg, err := processChatStream(ctx, strings.NewReader(stream), h, opts, nil)
+	_, msg, err := processChatStream(ctx, strings.NewReader(stream), []byte(stream), h, opts, nil)
 	if err != nil {
 		t.Fatalf("no se debe abortar: hay texto parcial recuperable: %v", err)
 	}

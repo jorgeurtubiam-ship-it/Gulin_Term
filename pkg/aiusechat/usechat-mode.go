@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
+	"github.com/gulindev/gulin/pkg/aiusechat/minimax"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/secretstore"
 	"github.com/gulindev/gulin/pkg/wconfig"
@@ -522,7 +523,10 @@ func inferContextLimit(model string) int {
 	// MiniMax M-series. El contexto real es 1M; se declara 800k para dejar
 	// margen al completion budget y evitar rechazos de payload.
 	case strings.Contains(m, "minimax"):
-		return 800000
+		// Fuente unica de verdad: minimax.DefaultContextLimit. Antes este
+		// switch tenia 800000 hardcodeado y divergia de la constante, de modo
+		// que tocar una dejaba la otra mintiendo.
+		return minimax.DefaultContextLimit
 
 	// Others
 	case strings.Contains(m, "mistral"), strings.Contains(m, "mixtral"), strings.Contains(m, "qwen"):

@@ -826,7 +826,8 @@ func GulinAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, m
 				}
 			}
 		}
-		log.Printf("GulinAI call metrics: requests=%d tools=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
+		log.Printf("GulinAI call metrics: apitype=%s provider=%s model=%s requests=%d tools=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
+			chatOpts.Config.APIType, chatOpts.Config.Provider, chatOpts.Config.Model,
 			metrics.RequestCount, metrics.ToolUseCount, metrics.PremiumReqCount, metrics.ProxyReqCount,
 			metrics.ImageCount, metrics.PDFCount, metrics.TextDocCount, metrics.TextLen, metrics.RequestDuration, metrics.HadError)
 		sendAIMetricsTelemetry(ctx, metrics)

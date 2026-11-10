@@ -18,8 +18,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
-	"github.com/gulindev/gulin/pkg/util/utilfn"
 	"github.com/gulindev/gulin/pkg/gulinbase"
+	"github.com/gulindev/gulin/pkg/util/utilfn"
 )
 
 func init() {
@@ -355,8 +355,9 @@ func buildAnthropicHTTPRequest(ctx context.Context, msgs []anthropicInputMessage
 		reqBody.Tools = finalTools
 	}
 
-	// Enable extended thinking based on level and model support
-	reqBody.Thinking = makeThinkingOpts(opts.Model, opts.ThinkingLevel, maxTokens)
+	// Enable extended thinking based on level and model support.
+	// Claude 5.x → adaptive + output_config.effort ; 4.x/3.7 → enabled + budget_tokens.
+	reqBody.Thinking, reqBody.OutputConfig = makeThinkingOpts(opts.Model, opts.ThinkingLevel, maxTokens)
 
 	// pretty print json of anthropicMsgs
 	if jsonStr, err := utilfn.MarshalIndentNoHTMLString(convertedMsgs, "", "  "); err == nil {

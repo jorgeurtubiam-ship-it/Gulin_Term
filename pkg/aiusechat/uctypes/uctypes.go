@@ -424,8 +424,12 @@ type GenAIMessage interface {
 }
 
 const (
-	AIMessagePartTypeText = "text"
-	AIMessagePartTypeFile = "file"
+	AIMessagePartTypeText  = "text"
+	AIMessagePartTypeFile  = "file"
+	// AIMessagePartTypeThink transporta el reasoning_content del assistant
+	// (MiniMax-M3 / DeepSeek-R1). Debe preservarse en el historial: el
+	// proveedor lo exige de vuelta en el request siguiente (interleaved thinking).
+	AIMessagePartTypeThink = "think"
 )
 
 // gulin specific for POSTing a new message to a convo
@@ -521,6 +525,16 @@ func (m *AIMessage) Validate() error {
 }
 
 func (p *AIMessagePart) Validate() error {
+	if p.Type == AIMessagePartTypeThink {
+		if p.Text == "" {
+			return fmt.Errorf("think type requires non-empty text field")
+		}
+		if p.FileName != "" || p.MimeType != "" || len(p.Data) > 0 || p.URL != "" {
+			return fmt.Errorf("think type cannot have file fields set")
+		}
+		return nil
+	}
+
 	if p.Type == AIMessagePartTypeText {
 		if p.Text == "" {
 			return fmt.Errorf("text type requires non-empty text field")

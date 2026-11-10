@@ -231,9 +231,9 @@ func IsReasoningModel(model string) bool {
 	}
 	m := strings.ToLower(model)
 	switch {
-	case strings.Contains(m, "deepseek"):
+	case isMiniMaxReasoningModel(m):
 		return true
-	case strings.Contains(m, "minimax"):
+	case strings.Contains(m, "deepseek"):
 		return true
 	case strings.Contains(m, "qwen3"):
 		return true
@@ -243,6 +243,26 @@ func IsReasoningModel(model string) bool {
 		return true
 	}
 	return false
+}
+
+// isMiniMaxReasoningModel reporta si el modelo MiniMax es de la familia M
+// (M1, M2.x, M3, M3.1-Flash), que siempre emite reasoning trace.
+//
+// OJO: la generacion legacy (abab5.5, abab6, text-01) NO razona y NO acepta
+// presupuestos de 32k tokens. Antes se hacia strings.Contains(m, "minimax") a
+// secas, lo que marcaba como reasoning a cualquier modelo cuyo ID contuviera
+// "minimax" — incluidos los legacy y los alias tipo "MiniMax1".
+func isMiniMaxReasoningModel(m string) bool {
+	if !strings.Contains(m, "minimax") {
+		return false
+	}
+	if strings.HasPrefix(m, "abab") || strings.Contains(m, "-abab") {
+		return false
+	}
+	if strings.Contains(m, "text-") {
+		return false
+	}
+	return true
 }
 
 // ReasoningModelMinMaxTokens is the floor applied to max_tokens for reasoning
@@ -296,7 +316,7 @@ func CreateToolUseData(toolCallID, toolName string, arguments string, chatOpts u
 	if toolDef.ToolApproval != nil {
 		toolUseData.Approval = toolDef.ToolApproval(parsedArgs, chatOpts)
 	}
-	
+
 	// Si estamos en modo @act, forzar la auto-aprobación de todas las herramientas
 	if strings.HasSuffix(chatOpts.Config.AIMode, "@act") {
 		toolUseData.Approval = uctypes.ApprovalAutoApproved

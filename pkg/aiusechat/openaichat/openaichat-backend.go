@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -133,6 +134,53 @@ func formatStreamError(errPayload interface{}) string {
 		return fmt.Sprintf("%v", errPayload)
 	}
 }
+
+// isTransientStreamError reporta si un error embebido en el SSE es un fallo
+// transitorio del upstream (MiniMax devuelve este payload cuando su nodo de
+// inferencia esta frio o el gateway aborta antes del primer token).
+func isTransientStreamError(errText string) bool {
+	e := strings.ToLower(errText)
+	return strings.Contains(e, "internal_error") ||
+		strings.Contains(e, "internal server error") ||
+		strings.Contains(e, "temporarily unavailable") ||
+		strings.Contains(e, "overloaded")
+}
+
+const (
+	// maxStreamRestarts acota cuantos reinicios silenciosos se hacen por turno.
+	// 8 intentos cubren rafagas de cold start del gateway de MiniMax-M3, donde
+	// varios nodos consecutivos pueden devolver internal_error antes de que uno
+	// responda completo. Cada intento reproduce bodyBytes ya bufferizado, asi que
+	// el coste extra es solo latencia (backoff exponencial acotado).
+	maxStreamRestarts = 8
+	// streamRestartBaseBackoff es la pausa antes del primer reintento del turno.
+	// Con cold start del gateway de MiniMax-M3 el primer token puede tardar
+	// decenas de segundos: un backoff fijo de 500ms cae dentro de la misma
+	// ventana fria y garantiza un segundo fallo.
+	streamRestartBaseBackoff = 1500 * time.Millisecond
+	// firstTokenStallTimeout aborta el intento si el nodo no emitio NINGUN
+	// chunk en este plazo. Conviert e un cold start colgado en un reintento
+	// inmediato en lugar de dejar al usuario mirando un spinner.
+	firstTokenStallTimeout = 90 * time.Second
+	// streamRestartMaxBackoff es el techo del backoff entre reinicios silenciosos.
+	streamRestartMaxBackoff = 8 * time.Second
+)
+
+// streamRestartBackoffFor devuelve el backoff exponencial (1.5s, 3s, 6s...)
+// del reintento n-esimo (0-based).
+func streamRestartBackoffFor(restart int) time.Duration {
+	if restart <= 0 {
+		return streamRestartBaseBackoff
+	}
+	d := streamRestartBaseBackoff << uint(restart)
+	// Tope: sin cap el backoff se dispara a minutos (1.5s<<7 = 3m12s) y el
+	// usuario cree que el turno se colgo.
+	if d > streamRestartMaxBackoff {
+		return streamRestartMaxBackoff
+	}
+	return d
+}
+
 func RunChatStep(
 	ctx context.Context,
 	sseHandler *sse.SSEHandlerCh,
@@ -242,6 +290,12 @@ func RunChatStep(
 
 	contentType := resp.Header.Get("Content-Type")
 	log.Printf("openaichat TRACE 2: Bridge response Content-Type: %s (isBridge: %v)\n", contentType, isBridge)
+	// El cuerpo del stream se bufferiza UNA sola vez para que los reintentos
+	// silenciosos puedan rebobinarlo. resp.Body es read-once: al reusarlo, el
+	// eventsource.Decoder siguiente recibe un reader vacio, devuelve io.EOF al
+	// instante y el watchdog de primer token gasta 90s esperando un token de un
+	// request que nunca se envio. Ese era el motivo real de restart=0.
+	var streamBodyBytes []byte
 	var bodyReader io.Reader = resp.Body
 	if isBridge || strings.Contains(contentType, "application/json") {
 		bodyBytes, readErr := io.ReadAll(resp.Body)
@@ -422,6 +476,16 @@ func RunChatStep(
 		}
 	}
 
+	// Cuerpo a memoria: resp.Body es read-once y los reintentos necesitan
+	// rebobinarlo. Aqui ya esta resuelto el reader definitivo del stream.
+	if streamBodyBytes == nil {
+		if raw, rErr := io.ReadAll(bodyReader); rErr == nil {
+			streamBodyBytes = raw
+		} else {
+			log.Printf("openaichat: no se pudo bufferizar el cuerpo del stream (retries deshabilitados): %v\n", rErr)
+		}
+	}
+
 	// Setup SSE now that we have the final bodyReader ready
 	if cont == nil {
 		if err := sseHandler.SetupSSE(); err != nil {
@@ -430,7 +494,7 @@ func RunChatStep(
 	}
 
 	// Stream processing
-	stopReason, assistantMsg, err := processChatStream(ctx, bodyReader, sseHandler, chatOpts, cont)
+	stopReason, assistantMsg, err := processChatStream(ctx, bodyReader, streamBodyBytes, sseHandler, chatOpts, cont)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -463,17 +527,103 @@ func RunChatStep(
 func processChatStream(
 	ctx context.Context,
 	body io.Reader,
+	bodyBytes []byte,
 	sseHandler *sse.SSEHandlerCh,
 	chatOpts uctypes.GulinChatOpts,
 	cont *uctypes.GulinContinueResponse,
 ) (*uctypes.GulinStopReason, *StoredChatMessage, error) {
-	decoder := eventsource.NewDecoder(body)
+	return processChatStreamAttempt(ctx, body, bodyBytes, sseHandler, chatOpts, cont, 0)
+}
+
+// processChatStreamAttempt implementa el streaming. restart cuenta los
+// reinicios silenciosos ya consumidos en este turno.
+func processChatStreamAttempt(
+	ctx context.Context,
+	body io.Reader,
+	bodyBytes []byte,
+	sseHandler *sse.SSEHandlerCh,
+	chatOpts uctypes.GulinChatOpts,
+	cont *uctypes.GulinContinueResponse,
+	restart int,
+) (*uctypes.GulinStopReason, *StoredChatMessage, error) {
+	return processChatStreamAttemptPrefix(ctx, body, bodyBytes, sseHandler, chatOpts, cont, restart, "")
+}
+
+// processChatStreamAttemptPrefix es processChatStreamAttempt con soporte para
+// reanudar un turno que murio a mitad del texto. partialPrefix contiene el texto
+// ya emitido al cliente: se usa para descartar el eco del reintento (el nuevo
+// stream repite desde el principio) y para reconstruir el mensaje persistido
+// completo.
+func processChatStreamAttemptPrefix(
+	ctx context.Context,
+	body io.Reader,
+	bodyBytes []byte,
+	sseHandler *sse.SSEHandlerCh,
+	chatOpts uctypes.GulinChatOpts,
+	cont *uctypes.GulinContinueResponse,
+	restart int,
+	partialPrefix string,
+) (*uctypes.GulinStopReason, *StoredChatMessage, error) {
+	// Watchdog de primer token: si el upstream no entrega NADA en
+	// firstTokenStallTimeout se trata como fallo transitorio y se reintenta.
+	// Sin esto un cold start del gateway de MiniMax deja el turno colgado sin
+	// que el auto-retry llegue a dispararse nunca.
+	attemptCtx, cancelAttempt := context.WithCancel(ctx)
+	defer cancelAttempt()
+	// firstChunk se escribe en la goroutine del decoder y se lee en la del
+	// watchdog: DEBE ser atomico. Un bool plano es un data race que -race marca.
+	var firstChunk atomic.Bool
+	var stallErr atomic.Value
+	go func() {
+		timer := time.NewTimer(firstTokenStallTimeout)
+		defer timer.Stop()
+		select {
+		case <-attemptCtx.Done():
+			return
+		case <-timer.C:
+			if !firstChunk.Load() {
+				stallErr.Store("internal_error: upstream no emitio el primer token en " + firstTokenStallTimeout.String())
+				cancelAttempt()
+			}
+		}
+	}()
+	// El decoder consume una copia: el body original queda intacto y sirve para
+	// rebobinar en los reintentos (resp.Body es read-once).
+	decoderBody := body
+	if bodyBytes != nil {
+		decoderBody = bytes.NewReader(bodyBytes)
+	}
+	decoder := eventsource.NewDecoder(decoderBody)
+
+	// rebobinar reconstruye el reader del stream desde el buffer para el proximo
+	// intento. Sin esto cualquier retry se hace sobre un body ya consumido.
+	rebobinar := func() io.Reader {
+		if bodyBytes != nil {
+			return bytes.NewReader(bodyBytes)
+		}
+		return body
+	}
 	var textBuilder strings.Builder
+	// Reanudacion mid-stream: el texto ya emitido al cliente se usa como prefijo.
+	// Asi el mensaje persistido queda completo y todo el contenido se escribe un
+	// solo texto en el chat.
+	if partialPrefix != "" {
+		textBuilder.WriteString(partialPrefix)
+	}
 	msgID := uuid.New().String()
 	textID := uuid.New().String()
 	reasoningID := uuid.New().String()
+	// reasoningBuilder acumula el thinking del turno: MiniMax-M3 exige que se
+	// devuelva intacto en el siguiente request o su gateway responde 500
+	// "internal_error" a mitad de la siguiente ronda de tool calls.
+	var reasoningBuilder strings.Builder
 	var finalUsage *ChatUsage
 	var finishReason string
+	// reanudando: en intentos con partialPrefix, el upstream re-emite el texto
+	// desde el principio. Solapamos con el prefijo y descartamos la parte ya
+	// visible en el cliente para no duplicarla.
+	reanudando := partialPrefix != ""
+	ecoConsumido := false
 	textStarted := false
 	reasoningStarted := false
 	var toolCallsInProgress []ToolCall
@@ -513,6 +663,10 @@ func processChatStream(
 				MessageId: msgID,
 				Message:   ChatRequestMessage{Role: "assistant"},
 			}
+		}
+		// Sin el reasoning el siguiente request rompe el interleaved thinking.
+		if reasoningBuilder.Len() > 0 {
+			msg.Message.ReasoningContent = reasoningBuilder.String()
 		}
 
 		var salvadas []ToolCall
@@ -555,6 +709,25 @@ func processChatStream(
 
 		event, err := decoder.Decode()
 		if err != nil {
+			// El watchdog cancelo el intento por falta de primer token: se
+			// trata como fallo transitorio y se reintenta en vez de propagar
+			// un "context canceled" incomprensible al usuario.
+			if stall, _ := stallErr.Load().(string); stall != "" {
+				log.Printf("openaichat: intento abortado por stall de primer token (restart=%d)\n", restart)
+				if restart < maxStreamRestarts {
+							// El turno puede reanudarse aunque ya se haya emitido texto:
+							// ese texto viaja como partialPrefix. Antes esta guarda lo
+							// convertia en aborto silencioso.
+					select {
+					case <-ctx.Done():
+						return &uctypes.GulinStopReason{Kind: uctypes.StopKindCanceled, ErrorType: "cancelled", ErrorText: "request cancelled"}, nil, ctx.Err()
+					case <-time.After(streamRestartBackoffFor(restart)):
+					}
+					return processChatStreamAttemptPrefix(ctx, rebobinar(), bodyBytes, sseHandler, chatOpts, cont, restart+1, textBuilder.String())
+				}
+				_ = sseHandler.AiMsgError(stall)
+				return &uctypes.GulinStopReason{Kind: uctypes.StopKindError, ErrorType: "stream_api", ErrorText: stall}, nil, nil
+			}
 			if errors.Is(err, io.EOF) {
 				break
 			}
@@ -574,6 +747,7 @@ func processChatStream(
 			}, nil, fmt.Errorf("stream decode error: %w", err)
 		}
 
+		firstChunk.Store(true)
 		data := event.Data()
 		if data == "[DONE]" {
 			break
@@ -591,11 +765,39 @@ func processChatStream(
 		}
 		if err := json.Unmarshal([]byte(data), &rawChunk); err == nil && rawChunk.Error != nil {
 			errText := formatStreamError(rawChunk.Error)
+			log.Printf("openaichat: upstream stream error mid-turn (partial_text_len=%d, tool_calls=%d, restart=%d): %s\n", textBuilder.Len(), len(toolCallsInProgress), restart, errText)
+
+			// Auto-retry transparente: MiniMax devuelve internal_error intermitente
+			// (cold start de su gateway). Antes solo se reintentaba si el corte
+			// llegaba ANTES de emitir nada; en la practica el 500 cae a mitad del
+			// texto ("...y lo ejecuto en ambos nodos") y el turno moria dejando al
+			// usuario con media frase. Ahora tambien se reintenta con texto ya
+			// emitido: el reintento usa cont != nil, lo que evita reabrir el
+			// mensaje (AiMsgStart) y re-emitir el texto ya visible (se pasa como
+			// prefijo y solo se descarta). Las tool calls parciales se conservan
+			// igual que en guardarFallbackConTools.
+			if isTransientStreamError(errText) && restart < maxStreamRestarts &&
+				len(toolCallsInProgress) == 0 {
+				redoCont := cont
+				if redoCont == nil {
+					redoCont = &uctypes.GulinContinueResponse{Model: chatOpts.Config.Model, ContinueFromKind: uctypes.StopKindError}
+				}
+				// El texto ya emitido se manda como prefijo para que el reintento
+				// no lo duplique (partialPrefix se descarta al reconstruir el msg).
+				partialPrefix := textBuilder.String()
+				log.Printf("openaichat: reintentando turno en silencio tras error transitorio (intento %d/%d, prefijo=%d chars)\n", restart+1, maxStreamRestarts, len(partialPrefix))
+				select {
+				case <-ctx.Done():
+					return &uctypes.GulinStopReason{Kind: uctypes.StopKindCanceled, ErrorType: "cancelled", ErrorText: "request cancelled"}, nil, ctx.Err()
+				case <-time.After(streamRestartBackoffFor(restart)):
+				}
+				return processChatStreamAttemptPrefix(ctx, rebobinar(), bodyBytes, sseHandler, chatOpts, redoCont, restart+1, partialPrefix)
+			}
+
 			// El upstream falló a mitad del stream (típico de MiniMax y proxies:
 			// un 500 después de haber emitido texto). Conservamos lo recibido y
 			// NO abortamos el turno: así el cliente no pierde la respuesta ya
 			// streameada ni se dispara el superfluous WriteHeader del handler.
-			log.Printf("openaichat: upstream stream error mid-turn (partial_text_len=%d, tool_calls=%d): %s\n", textBuilder.Len(), len(toolCallsInProgress), errText)
 			_ = sseHandler.AiMsgError(errText)
 			// Corte con tool calls ya emitidas: se persisten junto al texto parcial
 			// para que el siguiente turno cierre el pairing. Si se descartan, el
@@ -694,16 +896,24 @@ func processChatStream(
 				_ = sseHandler.AiMsgReasoningStart(reasoningID)
 				reasoningStarted = true
 			}
+			reasoningBuilder.WriteString(reasoning)
 			_ = sseHandler.AiMsgReasoningDelta(reasoningID, reasoning)
 		}
 
 		if content != "" {
-			if !textStarted {
-				_ = sseHandler.AiMsgTextStart(textID)
-				textStarted = true
+			if reanudando {
+				var emit string
+				emit, ecoConsumido = recortarEco(partialPrefix, content, ecoConsumido)
+				content = emit
 			}
-			textBuilder.WriteString(content)
-			_ = sseHandler.AiMsgTextDelta(textID, content)
+			if content != "" {
+				if !textStarted {
+					_ = sseHandler.AiMsgTextStart(textID)
+					textStarted = true
+				}
+				textBuilder.WriteString(content)
+				_ = sseHandler.AiMsgTextDelta(textID, content)
+			}
 		}
 
 		if len(delta.ToolCalls) > 0 {
@@ -825,6 +1035,12 @@ func processChatStream(
 	if len(validToolCalls) > 0 {
 		assistantMsg.Message.ToolCalls = validToolCalls
 	}
+	// Interleaved thinking (MiniMax-M3, DeepSeek-R1): el reasoning del turno
+	// debe volver al proveedor en el siguiente request. Si se omite, MiniMax
+	// responde 500 "internal_error" en cuanto la conversacion sigue.
+	if reasoningBuilder.Len() > 0 {
+		assistantMsg.Message.ReasoningContent = reasoningBuilder.String()
+	}
 	if finalUsage != nil {
 		assistantMsg.Usage = finalUsage
 	}
@@ -847,6 +1063,65 @@ func processChatStream(
 	}
 
 	return stopReason, assistantMsg, nil
+}
+
+// recortarEco descarta del delta el tramo de texto que el upstream re-emite y
+// que YA fue enviado al cliente antes del corte (partialPrefix). Se usa al
+// reanudar un turno abortado por un internal_error mid-stream: el reintento
+// repite la respuesta desde el principio y, sin este filtro, el usuario veria
+// el mismo parrafo dos veces.
+//
+// ecoConsumido marca que el solapamiento con el prefijo ya termino; a partir de
+// ahi el delta se emite integro y se puede concatenar con seguridad.
+//
+// El filtro compara el SUFIJO del prefijo con el PREFIJO del delta (el tramo
+// donde el reintento se solapa con lo ya emitido). Como el stream llega
+// troceado en deltas arbitrarios, el solape puede partirse: un delta puede
+// contener solo la mitad del solape pendiente y consumirlo completo (devuelve
+// "" y sigue sin consumir), o contener el resto del solape mas texto nuevo
+// (devuelve el excedente y marca consumido).
+func recortarEco(prefix, delta string, hecho bool) (string, bool) {
+	if hecho || prefix == "" || delta == "" {
+		return delta, hecho
+	}
+
+	// minSolapeEco evita que una coincidencia de pocos caracteres (probable por
+	// azar) haga descartar texto nuevo creyendo que es eco.
+	const minSolapeEco = 4
+
+	// 1) El delta cubre el prefijo completo: es eco y agota todo lo visible, el
+	//    eco termino; lo que sobre del delta es texto nuevo.
+	if strings.HasPrefix(delta, prefix) {
+		if len(delta) == len(prefix) {
+			return "", true
+		}
+		return delta[len(prefix):], true
+	}
+
+	// 2) El delta entero cae dentro del prefijo (eco puro en cualquier posicion:
+	//    el reintento a veces repite desde el inicio de la respuesta).
+	if strings.Contains(prefix, delta) && len(delta) >= minSolapeEco {
+		return "", false
+	}
+
+	// 3) Solape en el borde: sufijo[prefix] == prefijo[delta]. Cubre el eco
+	//    troceado, donde el trozo actual solo contiene parte del solape.
+	maxSolape := len(delta)
+	if len(prefix) < maxSolape {
+		maxSolape = len(prefix)
+	}
+	for n := maxSolape; n >= minSolapeEco; n-- {
+		if prefix[len(prefix)-n:] != delta[:n] {
+			continue
+		}
+		if n == len(delta) {
+			return "", false // trozo de eco sin excedente todavia
+		}
+		return delta[n:], true
+	}
+
+	// 4) Sin solape significativo: el reintento aporto texto nuevo, se emite integro.
+	return delta, true
 }
 
 func extractPartialTextMessage(msgID string, text string) *StoredChatMessage {

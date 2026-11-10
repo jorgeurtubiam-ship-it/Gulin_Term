@@ -45,18 +45,35 @@ import (
 
 const (
 	// DefaultContextLimit es el contexto declarado para la familia MiniMax.
-	// El limite real del modelo es 1M; se declara 800k para dejar margen al
-	// completion budget y no rechazar el payload por exceso.
-	DefaultContextLimit = 800000
+	//
+	// OJO: 800k es lo que aguanta el MODELO (sondeado con exito con 898k de
+	// input). Este valor NO es el limite del modelo: es el presupuesto que GuLiN
+	// se autoimpone para que el sliding window de limitTotalMessages recorte el
+	// historial cuando el turno crece.
+	//
+	// MOTIVO (bug "internal_error tras 50 comandos", nov-2026): con 800k el
+	// recorte practicamente nunca se disparaba y un turno con 51 tool calls
+	// enviaba el historial entero (input=65763 en el log). Pasado cierto volumen
+	// de mensajes role:"tool" el gateway responde 500 internal_error opaco a
+	// mitad de stream. 200k deja pasar varias veces el turno mas largo observado
+	// y fuerza el recorte en los turnos patologicos.
+	DefaultContextLimit = 200000
 
 	// MinReasoningTokens es el piso de max_tokens necesario para que el
 	// reasoning trace de MiniMax quepa completo antes de la respuesta visible.
-	MinReasoningTokens = 32768
+	//
+	// La doc oficial de MiniMax (text-chat-openai) recomienda 131072 (128K)
+	// para M3/M3.1-Flash: el reasoning trace de estos modelos se expande
+	// varios miles de tokens antes de emitir texto visible. Con el piso
+	// historico de 32768 el trace consumia el presupuesto entero y el
+	// gateway abortaba el stream con un 500 opaco "internal_error"
+	// (codigos 1024 y 2064) en lugar de devolver finish_reason="length".
+	MinReasoningTokens = 131072
 
-	// MaxReasoningTokens es el techo duro de max_tokens aceptado por la API
-	// de MiniMax. Pedir mas provoca un 500 opaco "internal_error" desde su
-	// gateway en lugar de un 400 explicativo, asi que nunca se envia mas.
-	MaxReasoningTokens = 32768
+	// MaxReasoningTokens es el techo de max_tokens para la familia M. La API
+	// admite hasta 524288 (512K); se adopta el valor recomendado (131072)
+	// como techo para no provocar el 500 opaco del gateway.
+	MaxReasoningTokens = 131072
 
 	// LegacyMaxTokens es el techo de max_tokens de los modelos MiniMax
 	// anteriores a la familia M (abab*, text-*). Esos modelos no emiten

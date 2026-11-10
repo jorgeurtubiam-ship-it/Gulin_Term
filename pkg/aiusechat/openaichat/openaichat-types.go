@@ -6,6 +6,7 @@ package openaichat
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 )
@@ -26,6 +27,18 @@ type ChatRequest struct {
 	Temperature         float64              `json:"temperature,omitempty"`
 	Tools               []ToolDefinition     `json:"tools,omitempty"`       // if you use tools
 	ToolChoice          any                  `json:"tool_choice,omitempty"` // "auto", "none", or struct
+
+	// Extensiones de proveedor (MiniMax M3/M3.1 y compatibles). Solo se
+	// serializan si el caller las rellena; para OpenAI puro quedan en cero
+	// y omitempty las elimina del payload.
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"` // low|medium|high|xhigh|max (MiniMax M3.1-Flash)
+	ReasoningSplit  *bool           `json:"reasoning_split,omitempty"`  // true => thinking va a reasoning_content
+	Thinking        *ThinkingConfig `json:"thinking,omitempty"`         // {"type":"enabled"|"disabled"|"adaptive"}
+}
+
+// ThinkingConfig es el objeto `thinking` de MiniMax (y de Anthropic-compat).
+type ThinkingConfig struct {
+	Type string `json:"type"` // "enabled" | "disabled" | "adaptive"
 }
 
 type ChatContentPart struct {
@@ -61,23 +74,76 @@ type ChatRequestMessage struct {
 	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`   // assistant tool-call message
 	ToolCallID   string            `json:"tool_call_id,omitempty"` // for role:"tool"
 	Name         string            `json:"name,omitempty"`         // tool name on role:"tool"
+
+	// ReasoningContent: reasoning trace del turno assistant.
+	//
+	// Se reenvia al proveedor para preservar el interleaved thinking de MiniMax
+	// M-series / DeepSeek-R1. NOTA (verificado 2026-08 empíricamente contra
+	// MiniMax-M3.1-Flash): omitirlo NO provoca 500 internal_error. El comentario
+	// anterior afirmaba lo contrario y era falso, lo que desvio un diagnostico
+	// completo del bug de internal_error hacia una causa inexistente. Se sigue
+	// enviando porque mantener el trace mejora la coherencia multi-turno, no
+	// porque el proveedor lo exija.
+	ReasoningContent string `json:"-"` // se serializa via MarshalJSON
 }
 
 // chatRequestMessageJSON is the wire format for ChatRequestMessage
 type chatRequestMessageJSON struct {
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	Name       string          `json:"name,omitempty"`
+	Role             string          `json:"role"`
+	Content          json.RawMessage `json:"content"`
+	ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`
+	ToolCallID       string          `json:"tool_call_id,omitempty"`
+	Name             string          `json:"name,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+}
+
+// toolCallJSON es el formato de cable de ToolCall. Existe porque el struct
+// ToolCall tiene campos internos de UI (toolusedata, desc, estado...) que NO
+// deben viajar nunca al proveedor: MiniMax los ignora, pero algunos gateways
+// OpenAI-compatibles rechazan el payload con un opaco 500 "internal_error".
+type toolCallJSON struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolFunctionCall `json:"function"`
+}
+
+func (tc ToolCall) MarshalJSON() ([]byte, error) {
+	clean := toolCallJSON{
+		ID:   tc.ID,
+		Type: tc.Type,
+		Function: ToolFunctionCall{
+			Name:      tc.Function.Name,
+			Arguments: sanitizeArguments(tc.Function.Arguments),
+		},
+	}
+	if clean.Type == "" {
+		clean.Type = "function"
+	}
+	return json.Marshal(clean)
+}
+
+// sanitizeArguments garantiza que `arguments` sea un objeto JSON serializado
+// como string. Un arguments vacío (tool call cortada a mitad de stream) se
+// reescribe a "{}"; un arguments inválido también, para que el proveedor no
+// devuelva 500/400 al parsear el historial.
+func sanitizeArguments(args string) string {
+	if args == "" {
+		return "{}"
+	}
+	trimmed := strings.TrimSpace(args)
+	if !json.Valid([]byte(trimmed)) || !strings.HasPrefix(trimmed, "{") {
+		return "{}"
+	}
+	return trimmed
 }
 
 func (cm ChatRequestMessage) MarshalJSON() ([]byte, error) {
 	raw := chatRequestMessageJSON{
-		Role:       cm.Role,
-		ToolCalls:  cm.ToolCalls,
-		ToolCallID: cm.ToolCallID,
-		Name:       cm.Name,
+		Role:             cm.Role,
+		ToolCalls:        cm.ToolCalls,
+		ToolCallID:       cm.ToolCallID,
+		Name:             cm.Name,
+		ReasoningContent: cm.ReasoningContent,
 	}
 	if len(cm.ContentParts) > 0 {
 		b, err := json.Marshal(cm.ContentParts)
@@ -105,6 +171,7 @@ func (cm *ChatRequestMessage) UnmarshalJSON(data []byte) error {
 	cm.ToolCalls = raw.ToolCalls
 	cm.ToolCallID = raw.ToolCallID
 	cm.Name = raw.Name
+	cm.ReasoningContent = raw.ReasoningContent
 	cm.Content = ""
 	cm.ContentParts = nil
 	if len(raw.Content) == 0 || bytes.Equal(raw.Content, []byte("null")) {

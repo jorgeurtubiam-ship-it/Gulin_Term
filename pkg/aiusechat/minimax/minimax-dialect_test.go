@@ -9,9 +9,13 @@ import (
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 )
 
-// MiniMax publica el mismo modelo por dos dialectos. Un desajuste entre
-// endpoint y transporte no falla ruidosamente: pierde tool calls o produce
-// errores 400 opacos. Estos tests fijan la tabla de decision.
+// MiniMax publica el MISMO modelo por DOS dialectos (verificado contra la doc
+// oficial, 2026-11):
+//   - OpenAI Chat Completions : https://api.minimax.io/v1/chat/completions
+//   - Anthropic Messages      : https://api.minimax.io/anthropic/v1/messages
+//
+// Un desajuste entre endpoint y transporte no falla ruidosamente: pierde tool
+// calls o produce errores 400 opacos. Estos tests fijan la tabla de decision.
 
 func TestResolveDialect(t *testing.T) {
 	tests := []struct {
@@ -81,17 +85,20 @@ func TestIsOpenAIDialectEndpoint(t *testing.T) {
 	}
 	for _, e := range yes {
 		if !isOpenAIDialectEndpoint(e) {
-			t.Fatalf("esperaba dialecto OpenAI para %q", e)
+			t.Fatalf("isOpenAIDialectEndpoint(%q) = false, want true", e)
 		}
 	}
+
 	no := []string{
-		"",
 		"https://api.minimax.io/anthropic/v1/messages",
-		"https://api.minimax.io/anthropic/v1/chat/completions", // /anthropic manda
+		"https://api.minimax.io/anthropic/chat/completions", // /anthropic manda
+		"https://api.minimax.io/v1/embeddings",
+		"https://gateway.interno/minimax",
+		"",
 	}
 	for _, e := range no {
 		if isOpenAIDialectEndpoint(e) {
-			t.Fatalf("NO esperaba dialecto OpenAI para %q", e)
+			t.Fatalf("isOpenAIDialectEndpoint(%q) = true, want false", e)
 		}
 	}
 }

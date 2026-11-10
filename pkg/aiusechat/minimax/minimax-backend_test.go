@@ -79,8 +79,14 @@ func TestApplyMiniMaxDefaultsNoBajaPisoFamiliaM(t *testing.T) {
 // TestMaxTokensCeiling garantiza que el techo nunca supere lo que la API de
 // MiniMax acepta sin devolver 500 "internal_error".
 func TestMaxTokensCeiling(t *testing.T) {
-	if MaxReasoningTokens > 32768 {
+	// La API de MiniMax admite hasta 524288 (512K) para M3/M3.1-Flash y
+	// recomienda 131072 (128K). El techo del codigo no debe superar el maximo
+	// absoluto ni quedar por debajo del valor recomendado por el proveedor.
+	if MaxReasoningTokens > 524288 {
 		t.Fatalf("MaxReasoningTokens=%d excede el maximo conocido de la API", MaxReasoningTokens)
+	}
+	if MaxReasoningTokens < 131072 {
+		t.Fatalf("MaxReasoningTokens=%d esta por debajo del valor recomendado (131072)", MaxReasoningTokens)
 	}
 	if LegacyMaxTokens >= MaxReasoningTokens {
 		t.Fatalf("LegacyMaxTokens=%d deberia ser menor que MaxReasoningTokens=%d", LegacyMaxTokens, MaxReasoningTokens)
