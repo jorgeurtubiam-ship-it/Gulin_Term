@@ -1,6 +1,6 @@
 module github.com/gulindev/gulin
 
-go 1.25.7
+go 1.26.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
@@ -44,7 +44,7 @@ require (
 	go.mongodb.org/mongo-driver v1.17.9
 	golang.org/x/crypto v0.48.0
 	golang.org/x/mod v0.33.0
-	golang.org/x/sync v0.19.0
+	golang.org/x/sync v0.25.0
 	golang.org/x/sys v0.41.0
 	golang.org/x/term v0.40.0
 	google.golang.org/api v0.267.0
