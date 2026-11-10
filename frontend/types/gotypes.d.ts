@@ -24,6 +24,8 @@ declare global {
         "ai:model"?: string;
         "ai:thinkinglevel"?: string;
         "ai:verbosity"?: string;
+        "ai:maxtokens"?: number;
+        "ai:contextlimit"?: number;
         "ai:endpoint"?: string;
         "ai:azureapiversion"?: string;
         "ai:apitoken"?: string;
@@ -1602,6 +1604,7 @@ declare global {
         "gulinbridge:tokensecretname"?: string;
         "ai:ollama_embedding_endpoint"?: string;
         "ai:ollama_embedding_model"?: string;
+        "ai:embedding_provider"?: string;
     };
 
     // gulinobj.StickerClickOptsType

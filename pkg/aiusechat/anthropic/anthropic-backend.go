@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/launchdarkly/eventsource"
 	"github.com/gulindev/gulin/pkg/aiusechat/chatstore"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/util/utilfn"
 	"github.com/gulindev/gulin/pkg/web/sse"
+	"github.com/launchdarkly/eventsource"
 )
 
 const (
@@ -185,14 +185,15 @@ type anthropicCitation struct {
 }
 
 type anthropicStreamRequest struct {
-	Model      string                         `json:"model"`
-	Messages   []anthropicInputMessage        `json:"messages"`
-	MaxTokens  int                            `json:"max_tokens"`
-	Stream     bool                           `json:"stream"`
-	System     []anthropicMessageContentBlock `json:"system,omitempty"`
-	ToolChoice any                            `json:"tool_choice,omitempty"`
-	Tools      []uctypes.ToolDefinition       `json:"tools,omitempty"`
-	Thinking   *anthropicThinkingOpts         `json:"thinking,omitempty"`
+	Model        string                         `json:"model"`
+	Messages     []anthropicInputMessage        `json:"messages"`
+	MaxTokens    int                            `json:"max_tokens"`
+	Stream       bool                           `json:"stream"`
+	System       []anthropicMessageContentBlock `json:"system,omitempty"`
+	ToolChoice   any                            `json:"tool_choice,omitempty"`
+	Tools        []uctypes.ToolDefinition       `json:"tools,omitempty"`
+	Thinking     *anthropicThinkingOpts         `json:"thinking,omitempty"`
+	OutputConfig *anthropicOutputConfig         `json:"output_config,omitempty"`
 }
 
 type anthropicCacheControl struct {
@@ -273,7 +274,12 @@ type anthropicFullStreamEvent struct {
 
 type anthropicThinkingOpts struct {
 	Type         string `json:"type"`
-	BudgetTokens int    `json:"budget_tokens"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
+// anthropicOutputConfig is the new (Claude 5.x) knob for reasoning effort.
+type anthropicOutputConfig struct {
+	Effort string `json:"effort,omitempty"` // "low" | "medium" | "high"
 }
 
 // ---------- per-index content block bookkeeping ----------
@@ -344,38 +350,68 @@ func (p *partialJSON) FinalObject() (json.RawMessage, error) {
 	}
 }
 
-// makeThinkingOpts creates thinking options based on level, max tokens and model support
-func makeThinkingOpts(model string, thinkingLevel string, maxTokens int) *anthropicThinkingOpts {
-	// Extended thinking is supported by claude-3-7-sonnet and the new Claude 4.5/5 generation
-	if !strings.Contains(model, "3-7-sonnet") &&
-		!strings.Contains(model, "fable-5") &&
-		!strings.Contains(model, "opus-4-8") &&
-		!strings.Contains(model, "sonnet-5") &&
+// anthropicModelFamily clasifica el modelo para saber qué dialecto de thinking acepta.
+//
+//	5.x y posterior (sonnet-5-5, opus-5, ...): thinking {"type":"adaptive"} + output_config.effort
+//	    NO aceptan budget_tokens (400 si se envía).
+//	4.x / 3.7: thinking {"type":"enabled", "budget_tokens": N} (legacy).
+func anthropicUsesAdaptiveThinking(model string) bool {
+	m := strings.ToLower(model)
+	// Claude 5 generation (5, 5.5, 5.x) — familia adaptativa.
+	for _, marker := range []string{"sonnet-5", "opus-5", "haiku-5", "fable-5", "claude-5"} {
+		if strings.Contains(m, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// makeThinkingOpts creates thinking options based on level, max tokens and model support.
+// Returns (thinking, outputConfig). Both nil when extended thinking is disabled.
+func makeThinkingOpts(model string, thinkingLevel string, maxTokens int) (*anthropicThinkingOpts, *anthropicOutputConfig) {
+	adaptive := anthropicUsesAdaptiveThinking(model)
+
+	// Legacy (<=4.x) sigue requiriendo una whitelist explícita de modelos con thinking.
+	if !adaptive &&
+		!strings.Contains(model, "3-7-sonnet") &&
+		!strings.Contains(model, "opus-4") &&
+		!strings.Contains(model, "sonnet-4") &&
 		!strings.Contains(model, "haiku-4-5") {
-		return nil
+		return nil, nil
 	}
 
-	if thinkingLevel != uctypes.ThinkingLevelMedium && thinkingLevel != uctypes.ThinkingLevelHigh {
-		return nil
+	// Map ThinkingLevel → effort para la familia adaptativa.
+	effort := "medium"
+	switch thinkingLevel {
+	case uctypes.ThinkingLevelLow:
+		effort = "low"
+	case uctypes.ThinkingLevelHigh:
+		effort = "high"
+	}
+
+	// Si el nivel es "none"/vacío en 5.x, no pedimos thinking explícito.
+	if adaptive && thinkingLevel == "none" {
+		return nil, nil
+	}
+
+	if !adaptive && thinkingLevel != uctypes.ThinkingLevelMedium && thinkingLevel != uctypes.ThinkingLevelHigh {
+		return nil, nil
+	}
+
+	if adaptive {
+		// Claude 5.x: adaptive + effort. NUNCA budget_tokens.
+		return &anthropicThinkingOpts{Type: "adaptive"}, &anthropicOutputConfig{Effort: effort}
 	}
 
 	maxThinkingBudget := int(float64(maxTokens) * 0.75)
-
-	// If 75% of maxTokens is less than minimum, disable thinking
 	if maxThinkingBudget < AnthropicMinThinkingBudget {
-		return nil
+		return nil, nil
 	}
-
-	// Use the smaller of our default budget or 75% of maxTokens
 	thinkingBudget := AnthropicThinkingBudget
 	if thinkingBudget > maxThinkingBudget {
 		thinkingBudget = maxThinkingBudget
 	}
-
-	return &anthropicThinkingOpts{
-		Type:         "enabled",
-		BudgetTokens: thinkingBudget,
-	}
+	return &anthropicThinkingOpts{Type: "enabled", BudgetTokens: thinkingBudget}, nil
 }
 
 // ---------- Public entrypoint ----------
@@ -562,7 +598,7 @@ func RunAnthropicChatStep(
 			}
 			sanitizedContent = append(sanitizedContent, block)
 		}
-		
+
 		if len(sanitizedContent) == 0 && len(msg.Content) > 0 {
 			// If we dropped all content blocks from this message, add a dummy text block
 			// to avoid sending an empty content array, which causes a 400 Bad Request,
@@ -572,7 +608,7 @@ func RunAnthropicChatStep(
 				Text: "[Contenido truncado por límite de contexto de Gulin]",
 			})
 		}
-		
+
 		msg.Content = sanitizedContent
 	}
 
@@ -655,7 +691,6 @@ func handleAnthropicStreamingResp(
 			Content:   []anthropicMessageContentBlock{},
 		},
 	}
-
 
 	// Ensure step is closed on error/cancellation
 	defer func() {

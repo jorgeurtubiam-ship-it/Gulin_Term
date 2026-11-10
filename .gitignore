@@ -59,3 +59,32 @@ build/gulin-server
 git_diff.txt
 *.docx
 test_sqlite.go
+
+# sqlite WAL/shm files must never be committed
+*.db-shm
+*.db-wal
+
+# --- GuLiN: scratch de diagnostico (2026-11) ---
+# Mains de un solo uso (vec0/embeddings/RAG). Declaran func main() en el mismo
+# paquete y rompen `go build ./...`.
+cmd/zzdiag/
+cmd/zzdiag2/
+cmd/zzdiag3/
+cmd/tmp_veccheck/
+cmd/vecprobe/
+cmd/vecsem/
+cmd/sizescan/
+
+# Tests de diagnostico zz_*: tocan el workspace real (SQLite memoria, API keys)
+# y fallan en CI / en otra maquina.
+pkg/aiusechat/zz_*_test.go
+pkg/remote/connparse/zz_*_test.go
+
+# Scripts temporales de parcheo one-shot
+tmp_fix_*.py
+
+# Bases SQLite del workspace (no deben versionarse)
+pkg/aiusechat/*.db
+pkg/aiusechat/*.db-shm
+pkg/aiusechat/*.db-wal
+test.db

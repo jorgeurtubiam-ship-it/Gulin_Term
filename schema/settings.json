@@ -349,6 +349,9 @@
         },
         "ai:ollama_embedding_model": {
           "type": "string"
+        },
+        "ai:embedding_provider": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

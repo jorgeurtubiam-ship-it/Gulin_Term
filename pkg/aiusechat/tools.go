@@ -14,9 +14,9 @@ import (
 	"github.com/gulindev/gulin/pkg/aiusechat/mcp"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/blockcontroller"
-	"github.com/gulindev/gulin/pkg/util/utilfn"
 	"github.com/gulindev/gulin/pkg/gulinbase"
 	"github.com/gulindev/gulin/pkg/gulinobj"
+	"github.com/gulindev/gulin/pkg/util/utilfn"
 	"github.com/gulindev/gulin/pkg/wshrpc"
 	"github.com/gulindev/gulin/pkg/wstore"
 )
@@ -435,6 +435,9 @@ func GetGulinBrainSearchToolDefinition() uctypes.ToolDefinition {
 			for _, file := range files {
 				content, err := ReadGulinMemoryFile(file)
 				if err == nil {
+					if len(content) > MemoryInjectMaxFileBytes {
+						content = content[:MemoryInjectMaxFileBytes] + "\n\n[...contenido truncado...]"
+					}
 					sb.WriteString(fmt.Sprintf("\n--- Archivo: %s ---\n", file))
 					sb.WriteString(content)
 					sb.WriteString("\n")
@@ -500,5 +503,3 @@ func GetAdderToolDefinition() uctypes.ToolDefinition {
 		},
 	}
 }
-
-

@@ -181,6 +181,10 @@ type SettingsType struct {
 	GulinBridgeTokenSecretName    string `json:"gulinbridge:tokensecretname,omitempty"`
 	AiOllamaEmbeddingEndpoint     string `json:"ai:ollama_embedding_endpoint,omitempty"`
 	AiOllamaEmbeddingModel        string `json:"ai:ollama_embedding_model,omitempty"`
+	// AiEmbeddingProvider pins the embedding provider used for indexing
+	// AND searching. When empty, the automatic priority order is used and
+	// the provider actually used is recorded per chunk.
+	AiEmbeddingProvider string `json:"ai:embedding_provider,omitempty"`
 }
 
 func (s *SettingsType) GetAiSettings() *AiSettingsType {
@@ -293,6 +297,8 @@ type AIModeConfigType struct {
 	Model              string   `json:"ai:model,omitempty"`
 	ThinkingLevel      string   `json:"ai:thinkinglevel,omitempty" jsonschema:"enum=low,enum=medium,enum=high"`
 	Verbosity          string   `json:"ai:verbosity,omitempty" jsonschema:"enum=low,enum=medium,enum=high,description=Text verbosity level (OpenAI Responses API only)"`
+	MaxTokens          int      `json:"ai:maxtokens,omitempty" jsonschema:"description=Maximum output tokens per request. 0 = use backend default (4096)"`
+	ContextLimit       int      `json:"ai:contextlimit,omitempty" jsonschema:"description=Maximum total context tokens (input) for the model. 0 = backend default"`
 	Endpoint           string   `json:"ai:endpoint,omitempty"`
 	AzureAPIVersion    string   `json:"ai:azureapiversion,omitempty"`
 	APIToken           string   `json:"ai:apitoken,omitempty"`

@@ -24,10 +24,18 @@ func GetFileUpdatedAt(ctx context.Context, db *sql.DB, filePath string) (int64, 
 	return 0, fmt.Errorf("vector db not supported without cgo")
 }
 
-func InsertFileChunks(ctx context.Context, db *sql.DB, filePath string, text string) error {
+func HasChunksWithoutProvider(ctx context.Context, db *sql.DB, filePath string) (bool, error) {
+	return false, fmt.Errorf("vector db not supported without cgo")
+}
+
+func InsertFileChunks(ctx context.Context, db *sql.DB, filePath string, text string, clientID string) error {
 	return fmt.Errorf("vector db not supported without cgo")
 }
 
 func SearchSemantically(ctx context.Context, db *sql.DB, query string, topK int) ([]SearchResult, error) {
 	return nil, fmt.Errorf("vector db not supported without cgo")
+}
+
+func PurgeOrphanedAndSkillsChunks(ctx context.Context, db *sql.DB) (int64, error) {
+	return 0, fmt.Errorf("vector db not supported without cgo")
 }

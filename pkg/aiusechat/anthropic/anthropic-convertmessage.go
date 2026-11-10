@@ -16,9 +16,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
-	"github.com/gulindev/gulin/pkg/util/utilfn"
 	"github.com/gulindev/gulin/pkg/gulinbase"
+	"github.com/gulindev/gulin/pkg/util/utilfn"
 )
 
 func init() {
@@ -35,26 +36,191 @@ func init() {
 // these conversions are based off the anthropic spec
 // and the aiprompts/aisdk-uimessage-type.md doc (v5)
 
-func truncateAnthropicLargeMessages(msgs []anthropicInputMessage, isBridgeReq bool) {
-	if !isBridgeReq {
+// anthropicDefaultContextLimit is the fallback total context budget (in tokens) used when
+// the mode does not declare ai:contextlimit. 128K tokens is a safe default for modern models.
+const anthropicDefaultContextLimit = 128000
+
+// truncateAnthropicLargeMessages caps the size of individual content blocks so a single
+// huge tool result (terminal output, file dump, search result) cannot blow up the request.
+//
+// isBridgeReq keeps the historical aggressive byte cap for the Gulin Bridge, which has a
+// hard payload limit and breaks with "unexpected EOF" on large bodies. For regular API
+// endpoints we use a token budget derived from the model's context limit instead.
+func truncateAnthropicLargeMessages(msgs []anthropicInputMessage, isBridgeReq bool, maxBlockTokens int) {
+	if maxBlockTokens <= 0 {
 		return
 	}
-	const MaxMessageLength = 15000
+	if isBridgeReq {
+		const MaxMessageLength = 15000
+		for i := range msgs {
+			msg := &msgs[i]
+			for j := range msg.Content {
+				block := &msg.Content[j]
+				if block.Type == "text" && len(block.Text) > MaxMessageLength {
+					truncMsg := fmt.Sprintf("\n\n... [TRUNCATED: The user/tool output was %d bytes, which exceeds the context limit for Gulin Bridge. Only showing the first %d bytes.]", len(block.Text), MaxMessageLength)
+					block.Text = block.Text[:MaxMessageLength] + truncMsg
+				} else if block.Type == "tool_result" && block.Content != nil {
+					if contentStr, ok := block.Content.(string); ok && len(contentStr) > MaxMessageLength {
+						truncMsg := fmt.Sprintf("\n\n... [TRUNCATED: The tool output was %d bytes, exceeding context limits. Only showing %d bytes. Adjust your tool call to return less data.]", len(contentStr), MaxMessageLength)
+						block.Content = contentStr[:MaxMessageLength] + truncMsg
+					}
+				}
+			}
+		}
+		return
+	}
+
+	// Regular API: cap each block by token budget (~4 chars per token).
+	maxCharLen := maxBlockTokens * 4
 	for i := range msgs {
 		msg := &msgs[i]
 		for j := range msg.Content {
 			block := &msg.Content[j]
-			if block.Type == "text" && len(block.Text) > MaxMessageLength {
-				truncMsg := fmt.Sprintf("\n\n... [TRUNCATED: The user/tool output was %d bytes, which exceeds the context limit for Gulin Bridge. Only showing the first %d bytes.]", len(block.Text), MaxMessageLength)
-				block.Text = block.Text[:MaxMessageLength] + truncMsg
-			} else if block.Type == "tool_result" && block.Content != nil {
-				if contentStr, ok := block.Content.(string); ok && len(contentStr) > MaxMessageLength {
-					truncMsg := fmt.Sprintf("\n\n... [TRUNCATED: The tool output was %d bytes, exceeding context limits. Only showing %d bytes. Adjust your tool call to return less data.]", len(contentStr), MaxMessageLength)
-					block.Content = contentStr[:MaxMessageLength] + truncMsg
+			switch block.Type {
+			case "text":
+				if len(block.Text) > maxCharLen {
+					truncMsg := fmt.Sprintf("\n\n... [TRUNCATED: The user/tool output was %d bytes, exceeding the context limit. Only showing the first %d bytes. Adjust your tool call to return less data.]", len(block.Text), maxCharLen)
+					block.Text = block.Text[:maxCharLen] + truncMsg
+				}
+			case "tool_result":
+				if contentStr, ok := block.Content.(string); ok && len(contentStr) > maxCharLen {
+					truncMsg := fmt.Sprintf("\n\n... [TRUNCATED: The tool output was %d bytes, exceeding context limits. Only showing %d bytes. Adjust your tool call to return less data.]", len(contentStr), maxCharLen)
+					block.Content = contentStr[:maxCharLen] + truncMsg
+				}
+			case "tool_use":
+				// tool_use inputs are model-generated and small; only guard pathological cases.
+				if inputStr, ok := block.Input.(string); ok && len(inputStr) > maxCharLen {
+					block.Input = inputStr[:maxCharLen] + "... [TRUNCATED]"
 				}
 			}
 		}
 	}
+}
+
+// anthropicMessageTokens estimates the token cost of a single anthropic input message.
+func anthropicMessageTokens(msg anthropicInputMessage) int {
+	total := 0
+	for _, block := range msg.Content {
+		switch block.Type {
+		case "text":
+			total += aiutil.EstimateTokens(block.Text)
+		case "tool_result":
+			switch content := block.Content.(type) {
+			case string:
+				total += aiutil.EstimateTokens(content)
+			default:
+				total += aiutil.EstimateTokens(fmt.Sprintf("%v", content))
+			}
+		case "tool_use":
+			total += aiutil.EstimateTokens(fmt.Sprintf("%v", block.Input))
+		case "thinking":
+			total += aiutil.EstimateTokens(block.Thinking)
+		}
+	}
+	return total
+}
+
+// limitAnthropicTotalMessages keeps the TOTAL conversation within the model's context
+// budget. It mirrors the behaviour of the OpenAI Chat Completions backend, but preserves
+// Anthropic's strict "tool_use must be followed by tool_result" pairing.
+//
+// Messages are dropped oldest-first, but a tool_use is only dropped together with its
+// matching tool_result so the API never receives a dangling tool reference.
+func limitAnthropicTotalMessages(msgs []anthropicInputMessage, maxTotalTokens int) []anthropicInputMessage {
+	if len(msgs) <= 1 || maxTotalTokens <= 0 {
+		return msgs
+	}
+
+	// Compute the token cost of each message and map tool_use <-> tool_result so we can
+	// drop them as a pair.
+	msgTokens := make([]int, len(msgs))
+	for i, msg := range msgs {
+		msgTokens[i] = anthropicMessageTokens(msg)
+	}
+
+	// Walk from newest to oldest, accumulating tokens until the budget is exhausted.
+	kept := make([]bool, len(msgs))
+	totalTokens := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if totalTokens+msgTokens[i] > maxTotalTokens {
+			break
+		}
+		kept[i] = true
+		totalTokens += msgTokens[i]
+	}
+
+	// If nothing fit (a single message exceeds the whole budget), keep the newest
+	// message anyway: the per-block truncation already capped it.
+	if !kept[len(msgs)-1] {
+		kept[len(msgs)-1] = true
+	}
+
+	// Identify tool_use <-> tool_result pairing ACROSS THE RETAINED WINDOW ONLY.
+	// If the tool_use was dropped but its tool_result survived, the API would reject
+	// the request ("unexpected tool_use_id"), and vice versa. Computing the sets from
+	// the retained window lets us drop both halves together.
+	toolResultIDs := make(map[string]bool)
+	toolUseIDs := make(map[string]bool)
+	for i, msg := range msgs {
+		if !kept[i] {
+			continue
+		}
+		for _, block := range msg.Content {
+			switch block.Type {
+			case "tool_result":
+				if block.ToolUseID != "" {
+					toolResultIDs[block.ToolUseID] = true
+				}
+			case "tool_use":
+				if block.ID != "" {
+					toolUseIDs[block.ID] = true
+				}
+			}
+		}
+	}
+
+	// Rebuild the slice, dropping orphaned tool_use / tool_result blocks.
+	result := make([]anthropicInputMessage, 0, len(msgs))
+	for i, msg := range msgs {
+		if !kept[i] {
+			continue
+		}
+		var content []anthropicMessageContentBlock
+		for _, block := range msg.Content {
+			switch block.Type {
+			case "tool_use":
+				if !toolResultIDs[block.ID] {
+					continue
+				}
+			case "tool_result":
+				if !toolUseIDs[block.ToolUseID] {
+					continue
+				}
+			}
+			content = append(content, block)
+		}
+		if len(content) == 0 {
+			continue
+		}
+		msg.Content = content
+		result = append(result, msg)
+	}
+
+	// Safe head: the conversation must start with a "user" message.
+	firstUserIdx := -1
+	for i, msg := range result {
+		if msg.Role == "user" {
+			firstUserIdx = i
+			break
+		}
+	}
+	if firstUserIdx != -1 {
+		result = result[firstUserIdx:]
+	} else if len(result) > 0 {
+		result = nil
+	}
+
+	return result
 }
 
 // buildAnthropicHTTPRequest creates a complete HTTP request for the Anthropic API
@@ -133,7 +299,17 @@ func buildAnthropicHTTPRequest(ctx context.Context, msgs []anthropicInputMessage
 	}
 
 	isBridgeReq := chatOpts.Config.BridgeProvider != "" || strings.Contains(chatOpts.Config.Endpoint, ":8090") || strings.Contains(chatOpts.Config.Endpoint, "gulinbridge")
-	truncateAnthropicLargeMessages(convertedMsgs, isBridgeReq)
+
+	// Determine the total context budget for this model.
+	contextLimit := opts.ContextLimit
+	if contextLimit <= 0 {
+		contextLimit = anthropicDefaultContextLimit
+	}
+
+	// Cap individual blocks first (a single huge tool result must not eat the budget),
+	// then enforce the total context window across the whole conversation.
+	truncateAnthropicLargeMessages(convertedMsgs, isBridgeReq, contextLimit/8)
+	convertedMsgs = limitAnthropicTotalMessages(convertedMsgs, contextLimit)
 
 	// Build request body
 	reqBody := &anthropicStreamRequest{
@@ -179,8 +355,9 @@ func buildAnthropicHTTPRequest(ctx context.Context, msgs []anthropicInputMessage
 		reqBody.Tools = finalTools
 	}
 
-	// Enable extended thinking based on level and model support
-	reqBody.Thinking = makeThinkingOpts(opts.Model, opts.ThinkingLevel, maxTokens)
+	// Enable extended thinking based on level and model support.
+	// Claude 5.x → adaptive + output_config.effort ; 4.x/3.7 → enabled + budget_tokens.
+	reqBody.Thinking, reqBody.OutputConfig = makeThinkingOpts(opts.Model, opts.ThinkingLevel, maxTokens)
 
 	// pretty print json of anthropicMsgs
 	if jsonStr, err := utilfn.MarshalIndentNoHTMLString(convertedMsgs, "", "  "); err == nil {
@@ -863,6 +1040,9 @@ func ConvertAIChatToUIChat(aiChat uctypes.AIChat) (*uctypes.UIChat, error) {
 		if !ok {
 			genericMsg := uctypes.ConvertToGenericAIMessage(nativeMsg)
 			if genericMsg != nil {
+				if genericMsg.Role == "tool" {
+					continue
+				}
 				uiMessages = append(uiMessages, uctypes.UIMessage{
 					ID:    genericMsg.MessageId,
 					Role:  genericMsg.Role,

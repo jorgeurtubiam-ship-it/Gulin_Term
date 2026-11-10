@@ -43,7 +43,43 @@ const (
 	AIProvider_Custom      = "custom"
 	AIProvider_GulinBridge  = "gulinbridge"
 	AIProvider_AWSBedrock  = "aws-bedrock"
+	AIProvider_MiniMax     = "minimax"
+	AIProvider_Anthropic   = "anthropic"
 )
+
+// ProviderAliases mapea alias/variantes de nombre de provider a las constantes canónicas.
+// Evita que valores viejos o escritos a mano (ej: "MiniMax1", "MiniMax-Anth", "claude")
+// caigan en el backend genérico en vez del backend correcto.
+var ProviderAliases = map[string]string{
+	"minimax":           AIProvider_MiniMax,
+	"minimax1":          AIProvider_MiniMax,
+	"mini-max":          AIProvider_MiniMax,
+	"minimax-anthropic": AIProvider_MiniMax,
+	"minimax-an":        AIProvider_MiniMax,
+	"minimax-m3":        AIProvider_MiniMax,
+	"anthropic":         AIProvider_Anthropic,
+	"claude":            AIProvider_Anthropic,
+	"anthropic-api":     AIProvider_Anthropic,
+}
+
+// NormalizeProvider convierte un provider arbitrario (mayúsculas, sufijos o alias)
+// en la constante canónica. Si no matchea ningún alias devuelve el valor en minúsculas.
+func NormalizeProvider(provider string) string {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	if p == "" {
+		return ""
+	}
+	if canonical, ok := ProviderAliases[p]; ok {
+		return canonical
+	}
+	if strings.HasPrefix(p, "minimax") {
+		return AIProvider_MiniMax
+	}
+	if strings.HasPrefix(p, "claude") || strings.HasPrefix(p, "anthropic") {
+		return AIProvider_Anthropic
+	}
+	return p
+}
 
 type UseChatRequest struct {
 	Messages []UIMessage `json:"messages"`
@@ -388,8 +424,12 @@ type GenAIMessage interface {
 }
 
 const (
-	AIMessagePartTypeText = "text"
-	AIMessagePartTypeFile = "file"
+	AIMessagePartTypeText  = "text"
+	AIMessagePartTypeFile  = "file"
+	// AIMessagePartTypeThink transporta el reasoning_content del assistant
+	// (MiniMax-M3 / DeepSeek-R1). Debe preservarse en el historial: el
+	// proveedor lo exige de vuelta en el request siguiente (interleaved thinking).
+	AIMessagePartTypeThink = "think"
 )
 
 // gulin specific for POSTing a new message to a convo
@@ -485,6 +525,16 @@ func (m *AIMessage) Validate() error {
 }
 
 func (p *AIMessagePart) Validate() error {
+	if p.Type == AIMessagePartTypeThink {
+		if p.Text == "" {
+			return fmt.Errorf("think type requires non-empty text field")
+		}
+		if p.FileName != "" || p.MimeType != "" || len(p.Data) > 0 || p.URL != "" {
+			return fmt.Errorf("think type cannot have file fields set")
+		}
+		return nil
+	}
+
 	if p.Type == AIMessagePartTypeText {
 		if p.Text == "" {
 			return fmt.Errorf("text type requires non-empty text field")

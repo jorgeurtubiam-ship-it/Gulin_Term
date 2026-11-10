@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -128,8 +129,12 @@ func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapab
 finalize:
 	// Los modelos Lite (Gemini Flash, GPT-4o-mini) en el Bridge se confunden con el Strict AddOn.
 	// Solo lo usaremos para modelos locales o proveedores que requieran ejecución estricta.
-	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek|minimax)\b`, modelLower)
-	if needsStrictToolAddOn && !useNoToolsPrompt {
+	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
+	// Anthropic usa tool_use/tool_result nativos con schema estricto: el StrictToolAddOn
+	// (pensado para modelos OpenAI-compatibles) provoca loops de parseo. MiniMax-M3 corre
+	// sobre dialecto Anthropic, por eso se excluye minimax de la lista anterior.
+	isAnthropicDialect := apiType == uctypes.APIType_AnthropicMessages
+	if needsStrictToolAddOn && !useNoToolsPrompt && !isAnthropicDialect {
 		prompts = append(prompts, GetSystemPromptText_StrictToolAddOn())
 	}
 
@@ -188,6 +193,10 @@ func getGulinAISettings(premium bool, builderMode bool, rtInfo gulinobj.ObjRTInf
 	if thinkingLevel == "" {
 		thinkingLevel = uctypes.ThinkingLevelMedium
 	}
+	// Per-mode override (ai:maxtokens) wins over the global/rtInfo value.
+	if config.MaxTokens > 0 {
+		maxTokens = config.MaxTokens
+	}
 	verbosity := config.Verbosity
 	if verbosity == "" {
 		verbosity = uctypes.VerbosityLevelMedium // default to medium
@@ -197,6 +206,7 @@ func getGulinAISettings(premium bool, builderMode bool, rtInfo gulinobj.ObjRTInf
 		APIType:       config.APIType,
 		Model:         config.Model,
 		MaxTokens:     maxTokens,
+		ContextLimit:  config.ContextLimit,
 		ThinkingLevel: thinkingLevel,
 		Verbosity:     verbosity,
 		AIMode:        aiMode,
@@ -816,7 +826,8 @@ func GulinAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, m
 				}
 			}
 		}
-		log.Printf("GulinAI call metrics: requests=%d tools=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
+		log.Printf("GulinAI call metrics: apitype=%s provider=%s model=%s requests=%d tools=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
+			chatOpts.Config.APIType, chatOpts.Config.Provider, chatOpts.Config.Model,
 			metrics.RequestCount, metrics.ToolUseCount, metrics.PremiumReqCount, metrics.ProxyReqCount,
 			metrics.ImageCount, metrics.PDFCount, metrics.TextDocCount, metrics.TextLen, metrics.RequestDuration, metrics.HadError)
 		sendAIMetricsTelemetry(ctx, metrics)
@@ -1601,17 +1612,35 @@ func GulinAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 	sseHandler := sse.MakeSSEHandlerCh(w, r.Context())
 	defer sseHandler.Close()
 
+	// streamStarted indica si un paso ya llamó a SetupSSE (headers 200 enviados).
+	// En ese caso es IMPOSIBLE devolver otro status: escribir con http.Error
+	// provoca 'superfluous response.WriteHeader call' y rompe la conexión SSE.
+	var streamStarted int32
+	markStreamStarted := func() { atomic.StoreInt32(&streamStarted, 1) }
+	handleRunError := func(prefix string, err error) {
+		if atomic.LoadInt32(&streamStarted) == 0 {
+			sseHandler.Close()
+			http.Error(w, fmt.Sprintf("%s: %v", prefix, err), http.StatusInternalServerError)
+			return
+		}
+		// El canal ya está vivo: propagamos el error como evento SSE.
+		_ = sseHandler.WriteError(err.Error())
+	}
+
 	if isInterruption && lastUserMsg != nil {
 		// Restart with merged message
+		markStreamStarted()
 		if err := RunAIChatWrap(r.Context(), sseHandler, chatOpts); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to restart chat: %v", err), http.StatusInternalServerError)
+			log.Printf("%s failed with error: %v", "RunAIChatWrap", err)
+			handleRunError("Failed to restart chat", err)
 			return
 		}
 	} else {
 		// Normal post
+		markStreamStarted()
 		if err := GulinAIPostMessageWrap(r.Context(), sseHandler, &req.Msg, chatOpts); err != nil {
 			log.Printf("GulinAIPostMessageWrap failed with error: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to post message: %v", err), http.StatusInternalServerError)
+			handleRunError("Failed to post message", err)
 			return
 		}
 	}

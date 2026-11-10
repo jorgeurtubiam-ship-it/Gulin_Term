@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gulindev/gulin/pkg/aiusechat/aiutil"
+	"github.com/gulindev/gulin/pkg/aiusechat/minimax"
 	"github.com/gulindev/gulin/pkg/aiusechat/uctypes"
 	"github.com/gulindev/gulin/pkg/secretstore"
 	"github.com/gulindev/gulin/pkg/wconfig"
@@ -80,6 +81,12 @@ func resolveAIMode(requestedMode string, premium bool) (string, *wconfig.AIModeC
 }
 
 func applyProviderDefaults(config *wconfig.AIModeConfigType) {
+	// Normalizar alias de provider (ej: "MiniMax1" -> "minimax", "Claude" -> "anthropic")
+	// para que no caigan en el backend genérico por diferencia de mayúsculas/sufijos.
+	config.Provider = uctypes.NormalizeProvider(config.Provider)
+	if config.ContextLimit <= 0 {
+		config.ContextLimit = inferContextLimit(config.Model)
+	}
 	if config.Provider == uctypes.AIProvider_Gulin {
 		config.GulinAICloud = true
 		if config.Endpoint == "" {
@@ -253,9 +260,64 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 			config.Capabilities = []string{uctypes.AICapabilityTools}
 		}
 	}
+	if config.Provider == uctypes.AIProvider_MiniMax {
+		// MiniMax expone DOS dialectos sobre el MISMO modelo:
+		//   - Anthropic Messages : https://api.minimax.io/anthropic/v1/messages
+		//   - OpenAI Chat        : https://api.minimax.io/v1/chat/completions
+		// El APIType debe derivarse del endpoint configurado; hardcodear Anthropic
+		// rompe silenciosamente cualquier modo apuntado al dialecto OpenAI.
+		isOpenAIDialect := minimaxEndpointIsOpenAI(config.Endpoint)
+		if config.APIType == "" {
+			if isOpenAIDialect {
+				config.APIType = uctypes.APIType_OpenAIChat
+			} else {
+				config.APIType = uctypes.APIType_AnthropicMessages
+			}
+		}
+		// Respetar un APIType explícito: solo se corrige si contradice al endpoint.
+		if isOpenAIDialect && config.APIType == uctypes.APIType_AnthropicMessages {
+			config.APIType = uctypes.APIType_OpenAIChat
+		} else if !isOpenAIDialect && config.APIType == uctypes.APIType_OpenAIChat && strings.Contains(config.Endpoint, "/anthropic") {
+			config.APIType = uctypes.APIType_AnthropicMessages
+		}
+		if config.Endpoint == "" {
+			if config.APIType == uctypes.APIType_OpenAIChat {
+				config.Endpoint = "https://api.minimax.io/v1/chat/completions"
+			} else {
+				config.Endpoint = "https://api.minimax.io/anthropic/v1/messages"
+			}
+		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools}
+		}
+	}
+	if config.Provider == uctypes.AIProvider_Anthropic {
+		if config.APIType == "" {
+			config.APIType = uctypes.APIType_AnthropicMessages
+		}
+		if config.Endpoint == "" {
+			config.Endpoint = "https://api.anthropic.com/v1/messages"
+		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools, uctypes.AICapabilityImages, uctypes.AICapabilityPdfs}
+		}
+	}
 	if config.APIType == "" {
 		config.APIType = uctypes.APIType_OpenAIChat
 	}
+}
+
+// minimaxEndpointIsOpenAI reporta si el endpoint apunta al dialecto OpenAI Chat
+// Completions de MiniMax (en vez del dialecto Anthropic Messages).
+func minimaxEndpointIsOpenAI(endpoint string) bool {
+	e := strings.ToLower(strings.TrimSpace(endpoint))
+	if e == "" {
+		return false
+	}
+	if strings.Contains(e, "/anthropic") {
+		return false
+	}
+	return strings.Contains(e, "/chat/completions") || strings.Contains(e, "/chat/completion")
 }
 
 func isAzureAPIType(apiType string) bool {
@@ -408,6 +470,71 @@ func broadcastAIModeConfigs(configs map[string]wconfig.AIModeConfigType) {
 		Data:  update,
 	})
 }
+// inferContextLimit returns the context window (in tokens) for a model, based on the
+// model family. It is only used when the mode does not declare ai:contextlimit.
+//
+// The values are conservative: they stay below the real limits of each family so the
+// request never exceeds what the provider accepts.
+func inferContextLimit(model string) int {
+	m := strings.ToLower(model)
+	if m == "" {
+		return 0
+	}
+	switch {
+	// Anthropic
+	case strings.Contains(m, "claude-3-5-sonnet"), strings.Contains(m, "claude-sonnet-4"),
+		strings.Contains(m, "claude-opus-4"), strings.Contains(m, "claude-haiku-4"):
+		return 200000
+	case strings.Contains(m, "claude-3-7"), strings.Contains(m, "claude-3-5-haiku"):
+		return 200000
+	case strings.Contains(m, "claude-3-opus"), strings.Contains(m, "claude-3-sonnet"), strings.Contains(m, "claude-3-haiku"):
+		return 200000
+	case strings.Contains(m, "claude"):
+		return 100000
+
+	// OpenAI
+	case strings.Contains(m, "gpt-4o"), strings.Contains(m, "gpt-4.1"), strings.Contains(m, "gpt-5"), strings.Contains(m, "o3"), strings.Contains(m, "o4-mini"):
+		return 128000
+	case strings.Contains(m, "gpt-4-turbo"), strings.Contains(m, "gpt-4-32k"):
+		return 32000
+	case strings.Contains(m, "gpt-4"):
+		return 8192
+	case strings.Contains(m, "o1"):
+		return 200000
+
+	// Google Gemini
+	case strings.Contains(m, "gemini-1.5-pro"), strings.Contains(m, "gemini-2.5-pro"), strings.Contains(m, "gemini-3"):
+		return 1000000
+	case strings.Contains(m, "gemini-1.5-flash"), strings.Contains(m, "gemini-2.0-flash"), strings.Contains(m, "gemini-2.5-flash"):
+		return 1000000
+	case strings.Contains(m, "gemini"):
+		return 32000
+
+	// Groq / Llama
+	case strings.Contains(m, "llama-3.3"), strings.Contains(m, "llama-3.1"):
+		return 128000
+	case strings.Contains(m, "llama"):
+		return 32000
+
+	// DeepSeek
+	case strings.Contains(m, "deepseek"):
+		return 64000
+
+	// MiniMax M-series. El contexto real es 1M; se declara 800k para dejar
+	// margen al completion budget y evitar rechazos de payload.
+	case strings.Contains(m, "minimax"):
+		// Fuente unica de verdad: minimax.DefaultContextLimit. Antes este
+		// switch tenia 800000 hardcodeado y divergia de la constante, de modo
+		// que tocar una dejaba la otra mintiendo.
+		return minimax.DefaultContextLimit
+
+	// Others
+	case strings.Contains(m, "mistral"), strings.Contains(m, "mixtral"), strings.Contains(m, "qwen"):
+		return 32000
+	}
+	return 0
+}
+
 func getProviderFromModelID(modelID string, originalProvider string) string {
 	m := strings.ToLower(modelID)
 	if strings.HasPrefix(m, "gpt-") || strings.HasPrefix(m, "o1-") || strings.HasPrefix(m, "o3-") || strings.Contains(m, "text-embedding-3") {
@@ -421,6 +548,9 @@ func getProviderFromModelID(modelID string, originalProvider string) string {
 	}
 	if strings.Contains(m, "deepseek-") {
 		return "deepseek"
+	}
+	if strings.Contains(m, "minimax") {
+		return "minimax"
 	}
 	if strings.Contains(m, "llama-") || strings.Contains(m, "meta-") {
 		return "meta"
@@ -468,7 +598,7 @@ func SyncGulinBridgeModels() error {
 		defer logFile.Close()
 	}
 	logToAll := func(s string) {
-		fmt.Printf(s + "\n")
+		fmt.Println(s)
 		if logFile != nil {
 			logFile.WriteString(time.Now().Format("15:04:05") + " " + s + "\n")
 		}

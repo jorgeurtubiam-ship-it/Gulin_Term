@@ -58,6 +58,14 @@
           ],
           "description": "Text verbosity level (OpenAI Responses API only)"
         },
+        "ai:maxtokens": {
+          "type": "integer",
+          "description": "Maximum output tokens per request. 0 = use backend default (4096)"
+        },
+        "ai:contextlimit": {
+          "type": "integer",
+          "description": "Maximum total context tokens (input) for the model. 0 = backend default"
+        },
         "ai:endpoint": {
           "type": "string"
         },

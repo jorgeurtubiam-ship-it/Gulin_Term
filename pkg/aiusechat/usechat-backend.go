@@ -12,6 +12,7 @@ import (
 	"github.com/gulindev/gulin/pkg/aiusechat/deepseek"
 	"github.com/gulindev/gulin/pkg/aiusechat/gemini"
 	"github.com/gulindev/gulin/pkg/aiusechat/groq"
+	"github.com/gulindev/gulin/pkg/aiusechat/minimax"
 	"github.com/gulindev/gulin/pkg/aiusechat/openai"
 	"github.com/gulindev/gulin/pkg/aiusechat/openaichat"
 	"github.com/gulindev/gulin/pkg/aiusechat/openrouter"
@@ -65,6 +66,7 @@ var _ UseChatBackend = (*anthropicBackend)(nil)
 var _ UseChatBackend = (*geminiBackend)(nil)
 var _ UseChatBackend = (*deepseek.DeepSeekBackend)(nil)
 var _ UseChatBackend = (*groq.GroqBackend)(nil)
+var _ UseChatBackend = (*minimax.MiniMaxBackend)(nil)
 var _ UseChatBackend = (*openrouter.OpenRouterBackend)(nil)
 var _ UseChatBackend = (*bedrock.BedrockBackend)(nil)
 
@@ -75,6 +77,7 @@ func GetBackendByAPIType(apiType string) (UseChatBackend, error) {
 
 // GetBackend returns the appropriate UseChatBackend implementation for the given API type and provider
 func GetBackend(apiType string, provider string) (UseChatBackend, error) {
+	provider = uctypes.NormalizeProvider(provider)
 	switch apiType {
 	case uctypes.APIType_OpenAIResponses:
 		return &openaiResponsesBackend{}, nil
@@ -84,6 +87,8 @@ func GetBackend(apiType string, provider string) (UseChatBackend, error) {
 			return &deepseek.DeepSeekBackend{}, nil
 		case uctypes.AIProvider_Groq:
 			return &groq.GroqBackend{}, nil
+		case uctypes.AIProvider_MiniMax:
+			return &minimax.MiniMaxBackend{}, nil
 		case uctypes.AIProvider_OpenRouter:
 			return &openrouter.OpenRouterBackend{}, nil
 		default:

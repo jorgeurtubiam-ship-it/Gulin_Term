@@ -147,17 +147,28 @@ func detectMimeType(data []byte) string {
 	return strings.Split(mimeType, ";")[0]
 }
 
+// getMaxFileSize returns the maximum accepted size for a file, based on its MIME type
+// and the summary mode.
+//
+// The limits for the standard modes match the canonical ones defined in
+// cmd/wsh/cmd/wshcmd-ai.go (getMaxFileSize): 5MB for PDF, 7MB for images and 200KB
+// for plain text. The HTML modes intentionally accept much bigger payloads because
+// the whole document is sent as context to the model.
+//
+// Keeping these values in sync matters: the size check happens BEFORE the API call,
+// so a wrong limit lets oversized files reach the provider (wasted bandwidth, token
+// cost and confusing API errors) instead of failing fast with a clear message.
 func getMaxFileSize(mimeType, mode string) (int, string) {
-	if mimeType == "application/pdf" {
-		return 100 * 1024 * 1024, "100MB"
-	}
-	if strings.HasPrefix(mimeType, "image/") {
-		return 100 * 1024 * 1024, "100MB"
-	}
 	if mode == ModeHTMLContent || mode == ModeHTMLFull {
 		return 100 * 1024 * 1024, "100MB"
 	}
-	return 100 * 1024 * 1024, "100MB"
+	if mimeType == "application/pdf" {
+		return 5 * 1024 * 1024, "5MB"
+	}
+	if strings.HasPrefix(mimeType, "image/") {
+		return 7 * 1024 * 1024, "7MB"
+	}
+	return 200 * 1024, "200KB"
 }
 
 // SummarizeFile reads a file and generates a summary using Google's Generative AI.

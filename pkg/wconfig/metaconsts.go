@@ -135,5 +135,6 @@ const (
 
 	ConfigKey_AiOllamaEmbeddingEndpoint      = "ai:ollama_embedding_endpoint"
 	ConfigKey_AiOllamaEmbeddingModel         = "ai:ollama_embedding_model"
+	ConfigKey_AiEmbeddingProvider            = "ai:embedding_provider"
 )
 

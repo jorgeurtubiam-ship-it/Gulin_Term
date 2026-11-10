@@ -105,7 +105,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
         model.registerScrollToBottom(() => scrollToBottom("auto"));
     }, [model, scrollToBottom]);
 
-    const displayMessages: GulinUIMessage[] = messages.filter((m) => !isInternalToolResult(m));
+    const displayMessages: GulinUIMessage[] = messages.filter((m) => (m as any)?.role !== "tool" && !isInternalToolResult(m));
     if (
         status === "streaming" &&
         (displayMessages.length === 0 || displayMessages[displayMessages.length - 1].role !== "assistant")

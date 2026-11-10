@@ -212,6 +212,65 @@ func CheckModelPrefix(model string, prefix string) bool {
 	return model == prefix || strings.HasPrefix(model, prefix+"-")
 }
 
+// IsReasoningModel reports whether the model emits a separate reasoning trace
+// that consumes part of the completion-token budget.
+//
+// This matters for max_tokens budgeting: with reasoning models the reasoning
+// tokens are counted against max_tokens, so a 4096 budget can be entirely
+// consumed by reasoning and the visible answer is truncated
+// (finish_reason="length").
+//
+// Covers:
+//   - OpenAI  o1/o3/o4/gpt-5/gpt-6 (see IsOpenAIReasoningModel)
+//   - DeepSeek reasoner / r1 families
+//   - MiniMax M-series (M1, M2, M3.x) — MiniMax-M3.1-Flash used by Gulin
+//   - Qwen 3 thinking variants
+func IsReasoningModel(model string) bool {
+	if IsOpenAIReasoningModel(model) {
+		return true
+	}
+	m := strings.ToLower(model)
+	switch {
+	case isMiniMaxReasoningModel(m):
+		return true
+	case strings.Contains(m, "deepseek"):
+		return true
+	case strings.Contains(m, "qwen3"):
+		return true
+	case strings.Contains(m, "qwq"):
+		return true
+	case strings.Contains(m, "r1-"), strings.Contains(m, "-r1"):
+		return true
+	}
+	return false
+}
+
+// isMiniMaxReasoningModel reporta si el modelo MiniMax es de la familia M
+// (M1, M2.x, M3, M3.1-Flash), que siempre emite reasoning trace.
+//
+// OJO: la generacion legacy (abab5.5, abab6, text-01) NO razona y NO acepta
+// presupuestos de 32k tokens. Antes se hacia strings.Contains(m, "minimax") a
+// secas, lo que marcaba como reasoning a cualquier modelo cuyo ID contuviera
+// "minimax" — incluidos los legacy y los alias tipo "MiniMax1".
+func isMiniMaxReasoningModel(m string) bool {
+	if !strings.Contains(m, "minimax") {
+		return false
+	}
+	if strings.HasPrefix(m, "abab") || strings.Contains(m, "-abab") {
+		return false
+	}
+	if strings.Contains(m, "text-") {
+		return false
+	}
+	return true
+}
+
+// ReasoningModelMinMaxTokens is the floor applied to max_tokens for reasoning
+// models. Reasoning traces routinely consume 1.5k-2k tokens before the model
+// starts writing the actual answer, so the historical 4096 default truncated
+// long answers mid-sentence.
+const ReasoningModelMinMaxTokens = 8192
+
 func CheckModelSubPrefix(model string, prefix string) bool {
 	if strings.HasPrefix(model, prefix) && len(model) > len(prefix) {
 		if model[len(prefix)] >= '0' && model[len(prefix)] <= '9' {
@@ -257,7 +316,7 @@ func CreateToolUseData(toolCallID, toolName string, arguments string, chatOpts u
 	if toolDef.ToolApproval != nil {
 		toolUseData.Approval = toolDef.ToolApproval(parsedArgs, chatOpts)
 	}
-	
+
 	// Si estamos en modo @act, forzar la auto-aprobación de todas las herramientas
 	if strings.HasSuffix(chatOpts.Config.AIMode, "@act") {
 		toolUseData.Approval = uctypes.ApprovalAutoApproved

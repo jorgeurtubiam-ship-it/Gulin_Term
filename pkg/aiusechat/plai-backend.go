@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -358,7 +359,7 @@ func (b *plaiBackend) RunChatStep(
 			if attempt == maxRetries {
 				errText := fmt.Sprintf("API error persistente (%d): %s", resp.StatusCode, string(respBody))
 				sseHandler.AiMsgError(errText)
-				return nil, nil, nil, fmt.Errorf(errText)
+				return nil, nil, nil, errors.New(errText)
 			}
 			// Backoff exponencial simple: 2s, 4s, 6s...
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
@@ -388,7 +389,7 @@ func (b *plaiBackend) RunChatStep(
 				}
 			}
 			sseHandler.AiMsgError(errText)
-			return nil, nil, nil, fmt.Errorf(errText)
+			return nil, nil, nil, errors.New(errText)
 		}
 		
 		// Éxito, salimos del bucle de reintentos

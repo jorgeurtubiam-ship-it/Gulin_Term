@@ -6,10 +6,14 @@ package aiusechat
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gulindev/gulin/pkg/gulinbase"
 )
@@ -17,6 +21,16 @@ import (
 const GulinMemoryDirName = "gulin"
 const EmbeddingsFileName = "embeddings.json"
 const EndpointEmbeddingsAPI = "/api/embeddings"
+
+// Budget for the ambient memory injected into every system prompt.
+// The semantic search returns 3 files; the keyword fallback is capped at the
+// same order of magnitude, and the total injected payload is hard-capped so a
+// pathological query can never blow up the prompt (or the renderer).
+const (
+	MemorySearchMaxFiles     = 9
+	MemoryInjectMaxBytes     = 24 * 1024
+	MemoryInjectMaxFileBytes = 8 * 1024
+)
 
 type GulinEmbeddings map[string][]float32
 
@@ -34,7 +48,7 @@ func EnsureGulinMemoryDir() error {
 func UpdateGulinMemoryFile(filename string, content string) error {
 	dataDir := gulinbase.GetGulinDataDir()
 	workspaceDir := filepath.Dir(dataDir)
-	
+
 	// Si viene con path relativo, lo guardamos ahí, sino por defecto a memoria/
 	var absPath string
 	if strings.HasPrefix(filename, "skills/") {
@@ -101,6 +115,7 @@ func ListGulinMemoryFiles() ([]string, error) {
 		filepath.Join(workspaceDir, "memoria"),
 		filepath.Join(workspaceDir, "learned"),
 		filepath.Join(workspaceDir, ".agents"),
+		filepath.Join(workspaceDir, "clientes"),
 	}
 
 	var files []string
@@ -229,53 +244,63 @@ func GetGulinBrainContext(query string) string {
 		return ""
 	}
 
-	var relevantFiles []string
-	if query != "" {
-		// Use semantic search to find top relevant files
-		relevantFiles, _ = SearchGulinMemory(query)
-	}
-
-	// Falls back to showing a few files if no semantic results or small number of files
-	if len(relevantFiles) == 0 {
-		// No results from semantic search, show the most recent ones (first 3)
-		// Siempre priorizar sesion-actual.md si existe (contiene el contexto de la sesión actual)
-		sessionFile := "sesion-actual.md"
-		sessionFound := false
-		for i := 0; i < len(files) && len(relevantFiles) < 5; i++ {
-			if files[i] == sessionFile {
-				relevantFiles = append(relevantFiles, files[i])
-				sessionFound = true
-			} else if len(relevantFiles) > 0 || i >= 1 {
-				// Después de sesion-actual (o en su defecto), completar con otros archivos
-				if len(relevantFiles) < 3 {
-					relevantFiles = append(relevantFiles, files[i])
-				}
-			}
-		}
-		// Si no encontramos sesion-actual.md, mostrar los primeros archivos como antes
-		if !sessionFound {
-			relevantFiles = nil
-			for i := 0; i < len(files) && i < 3; i++ {
-				relevantFiles = append(relevantFiles, files[i])
-			}
-		}
-	}
-
 	var sb strings.Builder
 	sb.WriteString("\n<gulin_brain_memory>\n")
 	sb.WriteString("Esta es tu MEMORIA A LARGO PLAZO (RAG). Contiene hábitos, lecciones aprendidas y contexto importante recuperado automáticamente para esta conversación.\n")
 	sb.WriteString("IMPORTANTE: Toda la información que necesitas sobre el usuario ya está aquí abajo. NO uses herramientas de búsqueda (brain_search) si la respuesta ya está en este bloque.\n")
 
-	for _, file := range relevantFiles {
-		content, err := ReadGulinMemoryFile(file)
-		if err == nil {
-			sb.WriteString(fmt.Sprintf("\n### Archivo: %s\n", file))
+	hits, _ := SearchGulinMemoryHits(query)
+
+	if len(hits) == 0 {
+		// Sin resultados semánticos: fallback legacy (sesion-actual + más recientes).
+		for _, f := range fallbackMemoryFiles(files) {
+			content, rErr := ReadGulinMemoryFile(f)
+			if rErr != nil {
+				continue
+			}
+			if len(content) > MemoryInjectMaxFileBytes {
+				content = content[:MemoryInjectMaxFileBytes] + "\n\n[...contenido truncado por límite de contexto...]"
+			}
+			if sb.Len()+len(content) > MemoryInjectMaxBytes {
+				break
+			}
+			sb.WriteString(fmt.Sprintf("\n### Archivo: %s\n", f))
 			sb.WriteString(content)
 			sb.WriteString("\n")
 		}
+		sb.WriteString("\n</gulin_brain_memory>\n")
+		return sb.String()
 	}
 
-	sb.WriteString("</gulin_brain_memory>\n")
+	// Inyección por chunks: lo que se rankeó es exactamente lo que se inyecta.
+	// Antes se volcaba el archivo completo (hasta 32 KB) y un solo archivo
+	// agotaba el presupuesto global de 24 KB.
+	curFile := ""
+	perFile := 0
+	for _, h := range hits {
+		if h.File != curFile {
+			curFile = h.File
+			perFile = 0
+		}
+		if perFile >= MemoryMaxChunksPerFile {
+			continue
+		}
+		content := h.Content
+		if len(content) > MemoryInjectMaxFileBytes {
+			content = content[:MemoryInjectMaxFileBytes]
+		}
+		if sb.Len()+len(content) > MemoryInjectMaxBytes {
+			break
+		}
+		if perFile == 0 {
+			sb.WriteString(fmt.Sprintf("\n### Archivo: %s (fragmento %d)\n", h.File, h.Index))
+		}
+		sb.WriteString(content)
+		sb.WriteString("\n")
+		perFile++
+	}
+
+	sb.WriteString("\n</gulin_brain_memory>\n")
 	return sb.String()
 }
 
@@ -299,18 +324,76 @@ func CosineSimilarity(a, b []float32) float32 {
 	return float32(dotProduct / (math.Sqrt(normA) * math.Sqrt(normB)))
 }
 
+// orphanPurgeState tracks the last orphan purge so it does not run on every message.
+var orphanPurgeState = struct {
+	sync.Mutex
+	lastRun   time.Time
+	lastFiles string
+}{}
+
+// orphanPurgeInterval is the safety-net minimum between two purge runs.
+const orphanPurgeInterval = 5 * time.Minute
+
+// shouldRunOrphanPurge decides whether the orphan purge is needed.
+// It returns true when the set of files on disk changed since the last run
+// (a file was added or deleted), or when more than orphanPurgeInterval has
+// elapsed since the last run (safety net for files removed outside the workspace).
+func shouldRunOrphanPurge(files []string) (bool, error) {
+	orphanPurgeState.Lock()
+	defer orphanPurgeState.Unlock()
+
+	// Cheap fingerprint of the file set: sorted names joined.
+	names := make([]string, len(files))
+	copy(names, files)
+	sort.Strings(names)
+	fingerprint := strings.Join(names, "\n")
+
+	if fingerprint != orphanPurgeState.lastFiles {
+		orphanPurgeState.lastFiles = fingerprint
+		orphanPurgeState.lastRun = time.Now()
+		return true, nil
+	}
+
+	if time.Since(orphanPurgeState.lastRun) > orphanPurgeInterval {
+		orphanPurgeState.lastRun = time.Now()
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func IndexMemoryFiles() error {
 	files, err := ListGulinMemoryFiles()
 	if err != nil {
 		return err
 	}
-	
+
 	db, err := GetGlobalVectorDB()
 	if err != nil {
 		return err
 	}
 
 	ctx := context.Background()
+
+	// Purge orphaned chunks BEFORE indexing, synchronously.
+	// The purge used to run in a background goroutine when the vector DB was opened,
+	// which raced with this indexing pass and could delete chunks that had just been
+	// written (leaving the file with zero chunks in the vector DB).
+	//
+	// It used to run unconditionally on EVERY message. That meant a full
+	// "SELECT DISTINCT filepath" + one os.Stat() per chunk on every single chat
+	// turn. It is now throttled: the purge only runs when the set of files on disk
+	// has actually changed since the last run, or at most once every 5 minutes as
+	// a safety net.
+	shouldPurge, err := shouldRunOrphanPurge(files)
+	if err != nil {
+		log.Printf("[memory_brain] orphan purge check failed: %v", err)
+	}
+	if shouldPurge {
+		if _, err := PurgeVectorDBOrphans(db); err != nil {
+			log.Printf("[memory_brain] purge of orphaned chunks failed: %v", err)
+		}
+	}
 
 	for _, file := range files {
 		absPath := ""
@@ -325,11 +408,39 @@ func IndexMemoryFiles() error {
 			continue
 		}
 
+		// Safeguard: no indexar ficheros binarios/enormes (>2MB). Los .md grandes
+		// se indexan truncados (cabecera + final) con truncateMemoryForIndex.
+		if info.Size() > 2*1024*1024 {
+			log.Printf("[memory_brain] skipping huge file (%d bytes): %s", info.Size(), file)
+			continue
+		}
+
 		lastUpdated, _ := GetFileUpdatedAt(ctx, db, file)
-		if info.ModTime().Unix() > lastUpdated {
+
+		// A file whose chunks were indexed before the embedding_provider tag
+		// existed has an UNKNOWN vector space, so the space-filtered search
+		// excludes it. The mtime check alone would never re-index it (the
+		// file did not change), leaving it permanently invisible. Detect that
+		// case and force a re-index.
+		needsReindex := false
+		if legacy, err := HasChunksWithoutProvider(ctx, db, file); err == nil && legacy {
+			needsReindex = true
+		}
+
+		if needsReindex || info.ModTime().Unix() > lastUpdated {
 			content, err := ReadGulinMemoryFile(file)
 			if err == nil {
-				InsertFileChunks(ctx, db, file, content)
+				content = truncateMemoryForIndex(content)
+				// Detect client ID if the file is under clientes/<client_name>/
+				clientID := ""
+				parts := strings.Split(filepath.ToSlash(file), "/")
+				if len(parts) >= 2 && parts[0] == "clientes" {
+					clientID = parts[1]
+				}
+
+				if err := InsertFileChunks(ctx, db, file, content, clientID); err != nil {
+					log.Printf("[memory_brain] failed to index %s: %v", file, err)
+				}
 			}
 		}
 	}
@@ -341,42 +452,18 @@ func SearchGulinMemory(query string) ([]string, error) {
 	// Ensure everything is indexed
 	IndexMemoryFiles()
 
-	db, err := GetGlobalVectorDB()
-	if err != nil {
-		return nil, err
-	}
-
-	results, err := SearchSemantically(context.Background(), db, query, 3)
+	hits, err := SearchGulinMemoryHits(query)
 	if err != nil {
 		return nil, err
 	}
 
 	var topFiles []string
 	seen := make(map[string]bool)
-	for _, res := range results {
-		// Strip chunk suffix (e.g. #0, #1)
-		baseFile := strings.Split(res.FilePath, "#")[0]
-		if !seen[baseFile] {
-			topFiles = append(topFiles, baseFile)
-			seen[baseFile] = true
+	for _, h := range hits {
+		if !seen[h.File] {
+			topFiles = append(topFiles, h.File)
+			seen[h.File] = true
 		}
 	}
-
-	// Keyword & Filename matching fallback (e.g. o365, aws, dba, ley, etc.)
-	queryWords := strings.Fields(strings.ToLower(query))
-	allFiles, _ := ListGulinMemoryFiles()
-	for _, f := range allFiles {
-		fLower := strings.ToLower(f)
-		for _, w := range queryWords {
-			cleanWord := strings.Trim(w, "@,.?!:;\"'")
-			if len(cleanWord) >= 3 && strings.Contains(fLower, cleanWord) {
-				if !seen[f] {
-					topFiles = append(topFiles, f)
-					seen[f] = true
-				}
-			}
-		}
-	}
-	
 	return topFiles, nil
 }

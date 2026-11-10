@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,13 @@ const (
 	GulinProjectDirName   = ".gulin"
 	GulinInsightsFileName = "insights.md"
 	ReflectionMaxInsights = 50 // máximo de insights por proyecto antes de rotar
+
+	// Presupuesto de inyección de insights en el System Prompt.
+	// Sin estos topes, un proyecto con 33+ insights metía ~150 KB (~37 K tokens)
+	// de prompt fijo en CADA request, aunque la pregunta fuese trivial.
+	ProjectInsightsMaxFiles     = 15        // solo los N insights más recientes
+	ProjectInsightsMaxBytes     = 24 * 1024 // tope duro del bloque completo
+	ProjectInsightsMaxFileBytes = 4 * 1024  // tope por archivo individual
 )
 
 // projectRootMarkers son archivos/carpetas que indican la raíz de un proyecto.
@@ -63,7 +71,7 @@ func FindProjectRoot(startDir string) string {
 // ExtractCwdFromTabState extrae el directorio de trabajo (CWD) del TabState de WaveTerm.
 // WaveTerm genera el estado con el formato (ver makeTerminalBlockDesc en tools.go):
 //
-//	* (abc12345) local CLI terminal (zsh), in directory "/Users/lordzero1/Gulin_Agent"
+//   - (abc12345) local CLI terminal (zsh), in directory "/Users/lordzero1/Gulin_Agent"
 func ExtractCwdFromTabState(tabState string) string {
 	if tabState == "" {
 		return ""
@@ -276,28 +284,74 @@ func ReadProjectInsights(tabState string) string {
 	if insightsDir == "" {
 		return ""
 	}
+	return readInsightsFromDir(insightsDir)
+}
 
+// readInsightsFromDir lee los insights de un directorio aplicando el presupuesto
+// de contexto (máx N archivos por recencia, tope por archivo y tope global).
+func readInsightsFromDir(insightsDir string) string {
 	entries, err := os.ReadDir(insightsDir)
 	if err != nil {
 		return "" // directorio no existe, es normal
 	}
 
-	var sb strings.Builder
-	count := 0
+	// Ordenar por fecha de modificación DESC: los insights más recientes son los
+	// más valiosos. Antes se insertaban TODOS los archivos completos sin tope de
+	// tamaño, agotando el contexto del modelo en cada llamada.
+	type insightFile struct {
+		name    string
+		modTime int64
+		size    int64
+	}
+	var candidates []insightFile
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
 			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, insightFile{
+			name:    entry.Name(),
+			modTime: info.ModTime().UnixNano(),
+			size:    info.Size(),
+		})
+	}
 
-		data, err := os.ReadFile(filepath.Join(insightsDir, entry.Name()))
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].modTime > candidates[j].modTime
+	})
+
+	var sb strings.Builder
+	count := 0
+	omitted := 0
+	for _, c := range candidates {
+		if count >= ProjectInsightsMaxFiles {
+			omitted = len(candidates) - count
+			break
+		}
+
+		data, err := os.ReadFile(filepath.Join(insightsDir, c.name))
 		if err != nil {
 			continue
 		}
 
+		body := string(data)
+		if len(body) > ProjectInsightsMaxFileBytes {
+			body = body[:ProjectInsightsMaxFileBytes] + "\n\n[...insight truncado por límite de contexto...]\n"
+		}
+
+		// Reservamos espacio para la cabecera del bloque (~250 bytes).
+		if sb.Len()+len(body)+64 > ProjectInsightsMaxBytes-512 {
+			omitted = len(candidates) - count
+			break
+		}
+
 		sb.WriteString("\n--- Archivo: ")
-		sb.WriteString(entry.Name())
+		sb.WriteString(c.name)
 		sb.WriteString(" ---\n")
-		sb.WriteString(string(data))
+		sb.WriteString(body)
 		sb.WriteString("\n")
 		count++
 	}
@@ -311,6 +365,9 @@ func ReadProjectInsights(tabState string) string {
 	finalSb.WriteString(fmt.Sprintf("LECCIONES APRENDIDAS EN ESTE PROYECTO (%d insights):\n", count))
 	finalSb.WriteString("Lee estos insights ANTES de ejecutar cualquier herramienta. Son errores reales que ocurrieron en este proyecto y debes evitar repetirlos.\n\n")
 	finalSb.WriteString(sb.String())
+	if omitted > 0 {
+		finalSb.WriteString(fmt.Sprintf("\n[%d insights adicionales omitidos por presupuesto de contexto. Usa brain_search o read_text_file si necesitas el histórico completo de learned/%s/]\n", omitted, filepath.Base(insightsDir)))
+	}
 	finalSb.WriteString("\n</gulin_lessons_learned>\n")
 
 	return finalSb.String()
